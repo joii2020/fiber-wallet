@@ -1,0 +1,23 @@
+{
+  "name": "@fiber-wallet/app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@ckb-ccc/ccc": "^1.1.10",
+    "@fiber-wallet/shared": "workspace:*",
+    "@joyid/ckb": "^1.1.3",
+    "@joyid/common": "^0.2.1",
+    "@nervosnetwork/fiber-js": "git+https://github.com/joii2020/fiber-wasm-dist.git",
+    "buffer": "^6.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}

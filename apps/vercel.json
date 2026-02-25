@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    { "source": "/demo", "destination": "/demo/", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/demo/(.*)", "destination": "/demo/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
