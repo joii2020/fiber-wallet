@@ -65,6 +65,15 @@ export const toCccTransaction = (unsignedTx: CkbJsonRpcTransaction): ccc.Transac
   };
 };
 
+export const withFundingTxWitnesses = (
+  fundingTx: CkbJsonRpcTransaction,
+  witnesses: string[]
+): CkbJsonRpcTransaction => ({
+  // External funding submit only accepts signature/witness updates.
+  ...fundingTx,
+  witnesses: witnesses.map((witness) => witness as `0x${string}`)
+});
+
 export class CccWalletManager {
   private readonly signersController = new ccc.SignersController();
   private readonly client: ccc.Client;
@@ -136,9 +145,6 @@ export class CccWalletManager {
   ): Promise<CkbJsonRpcTransaction> {
     const cccTx = toCccTransaction(unsignedTx);
     const signedTx = await signer.signOnlyTransaction(cccTx);
-    return {
-      ...unsignedTx,
-      witnesses: signedTx.witnesses.map((witness) => witness as `0x${string}`)
-    };
+    return withFundingTxWitnesses(unsignedTx, signedTx.witnesses);
   }
 }

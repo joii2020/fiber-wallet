@@ -16,6 +16,7 @@ export {
 export {
   CccWalletManager,
   toCccTransaction,
+  withFundingTxWitnesses,
   type CccWalletManagerOptions,
   type CkbSignerInfo
 } from "./ccc-wallet";

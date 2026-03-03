@@ -411,7 +411,7 @@ const channel = new BroadcastChannel(channelName);
 const fiber = new FiberWasmManager({
   secretStorageKey: "fiber-wallet-demo:fiber-key-pair",
   databasePrefix: "/wasm-fiber-wallet-demo",
-  logLevel: "debug"
+  logLevel: "info"
 });
 
 let isFiberStarted = false;

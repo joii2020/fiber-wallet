@@ -1,6 +1,5 @@
 import { Fiber, randomSecretKey } from "@nervosnetwork/fiber-js";
 import type {
-  CellDep,
   CkbJsonRpcTransaction,
   Channel,
   OpenChannelWithExternalFundingParams,
@@ -98,7 +97,13 @@ export const toFiberCellDep = (cellDep: {
     txHash: string;
     index: string | number | bigint;
   };
-}): CellDep => ({
+}): {
+  dep_type: "code" | "dep_group";
+  out_point: {
+    tx_hash: `0x${string}`;
+    index: `0x${string}`;
+  };
+} => ({
   dep_type: cellDep.depType === "depGroup" || cellDep.depType === "dep_group" ? "dep_group" : "code",
   out_point: {
     tx_hash: cellDep.outPoint.txHash as `0x${string}`,
@@ -219,10 +224,12 @@ export class FiberWasmManager {
   async openChannelWithExternalFunding(
     params: OpenChannelWithExternalFundingParams
   ): Promise<OpenChannelWithExternalFundingResult> {
+    // fiber-js now returns the final negotiated unsigned funding tx.
     return this.assertStarted().openChannelWithExternalFunding(params);
   }
 
   async submitSignedFundingTx(channelId: string, signedTx: CkbJsonRpcTransaction) {
+    // Only witnesses/signatures should differ from the previously returned funding tx.
     return this.assertStarted().submitSignedFundingTx({
       channel_id: channelId as `0x${string}`,
       signed_funding_tx: signedTx

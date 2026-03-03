@@ -11,9 +11,9 @@ import type {
 import {
   CccWalletManager,
   type CkbSignerInfo,
-  toFiberCellDep,
   toFiberScript,
-  toCccTransaction
+  toCccTransaction,
+  withFundingTxWitnesses
 } from "@fiber-wallet/shared";
 
 if (!("global" in globalThis)) {
@@ -196,7 +196,10 @@ const walletOptionsEl = getEl<HTMLUListElement>("[data-role='wallet-options']");
 const SHANNONS_PER_CKB = 100000000n;
 const DEFAULT_FUNDING_AMOUNT_SHANNONS = 1000n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS = 120n * SHANNONS_PER_CKB;
-const OPEN_CHANNEL_FUNDING_FEE_RATE = 1500n;
+// Fee rate in shannons/KB
+// Note: Must be high enough to cover the transaction size including all cell deps
+// JoyID requires 5 cell deps which increases transaction size
+const OPEN_CHANNEL_FUNDING_FEE_RATE = 3000n;
 const walletManager = new CccWalletManager({
   appName: "Fiber Wallet Demo"
 });
@@ -265,9 +268,8 @@ type FiberHostReady = {
 };
 
 const createFiberHostRequestId = (prefix: string): string => {
-  return `${prefix}:${
-    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  }`;
+  return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }`;
 };
 
 const fiberHostChannelName = createFiberHostRequestId("fiber-wallet-demo:fiber-host");
@@ -880,50 +882,11 @@ const toRpcHexAmount = (amount: bigint): `0x${string}` => {
   return `0x${amount.toString(16)}`;
 };
 
-const resolveFundingSourceContext = async (
-  signer: ccc.Signer,
-  lockScript: {
-    codeHash: string;
-    hashType: string;
-    args: string;
-  }
-) => {
-  const normalizedCurrentHashType = lockScript.hashType.toLowerCase();
-  const supportedKnownScripts = [ccc.KnownScript.Secp256k1Blake160, ccc.KnownScript.JoyId];
-
-  for (const knownScript of supportedKnownScripts) {
-    try {
-      const scriptInfo = await signer.client.getKnownScript(knownScript);
-      const normalizedKnownHashType = scriptInfo.hashType.toLowerCase();
-
-      if (
-        lockScript.codeHash.toLowerCase() === scriptInfo.codeHash.toLowerCase() &&
-        normalizedCurrentHashType === normalizedKnownHashType
-      ) {
-        return {
-          fundingSourceExtraCellDeps: scriptInfo.cellDeps.map((cellDepInfo) =>
-            toFiberCellDep(cellDepInfo.cellDep)
-          )
-        };
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  throw new Error(
-    [
-      "Unsupported wallet lock script for open channel external funding.",
-      "This demo currently supports Secp256k1Blake160 and JoyId funding lock.",
-      `current=${lockScript.codeHash}/${normalizedCurrentHashType}`
-    ].join(" ")
-  );
-};
-
 const signJoyIdFundingTx = async (
   unsignedTx: CkbJsonRpcTransaction,
   signer: ccc.Signer,
-  popup: Window
+  popup: Window,
+  client: ccc.Client
 ): Promise<CkbJsonRpcTransaction> => {
   const tx = ccc.Transaction.from(toCccTransaction(unsignedTx));
   const signerAddressObj = await signer.getRecommendedAddressObj();
@@ -931,7 +894,7 @@ const signJoyIdFundingTx = async (
 
   const witnessIndexes: number[] = [];
   for (const [index, input] of tx.inputs.entries()) {
-    const { cellOutput } = await input.getCell(signer.client);
+    const { cellOutput } = await input.getCell(client);
     if (cellOutput.lock.eq(signerAddressObj.script)) {
       witnessIndexes.push(index);
     }
@@ -941,7 +904,7 @@ const signJoyIdFundingTx = async (
     throw new Error("No JoyID inputs found in unsigned funding transaction");
   }
 
-  await tx.prepareSighashAllWitness(signerAddressObj.script, 0, signer.client);
+  await tx.prepareSighashAllWitness(signerAddressObj.script, 0, client);
   tx.inputs.forEach((input) => {
     input.cellOutput = undefined;
     input.outputData = undefined;
@@ -959,10 +922,7 @@ const signJoyIdFundingTx = async (
     }
   );
 
-  return {
-    ...unsignedTx,
-    witnesses: joyIdSignedTx.witnesses.map((witness: string) => witness as `0x${string}`)
-  };
+  return withFundingTxWitnesses(unsignedTx, joyIdSignedTx.witnesses);
 };
 
 openChannelButton.addEventListener("click", () => {
@@ -980,7 +940,6 @@ openChannelButton.addEventListener("click", () => {
       }
 
       const fundingAddressObj = await signer.getRecommendedAddressObj();
-      const fundingSource = await resolveFundingSourceContext(signer, fundingAddressObj.script);
 
       const lockScript = toFiberScript(fundingAddressObj.script);
       const fundingScriptCapacity = await signer.client.getCellsCapacity({
@@ -1021,39 +980,86 @@ openChannelButton.addEventListener("click", () => {
         throw new Error("Target node address must include /p2p/<peer-id>");
       }
 
-      const result = await callFiberHost("openChannelWithExternalFunding", {
+      // Build external funding params with optional cell deps for custom wallet locks
+      const openChannelParams: OpenChannelWithExternalFundingParams = {
         peer_id: relayPeerId,
         funding_amount: toRpcHexAmount(fundingAmount),
         public: true,
         shutdown_script: lockScript,
         funding_lock_script: lockScript,
         funding_fee_rate: toRpcHexAmount(OPEN_CHANNEL_FUNDING_FEE_RATE),
-        funding_source_extra_cell_deps: fundingSource.fundingSourceExtraCellDeps
-      });
+      };
+
+      // Add funding_lock_script_cell_deps for JoyID wallet
+      // JoyID lock script requires 5 underlying cell deps
+      // Instead of using the dep_group (which may reference an unavailable internal dep group),
+      // we directly add all 5 cell deps that JoyID needs
+      if (isJoyIdSigner(signer)) {
+        // Testnet JoyID cell deps (expanded from dep_group 0x4dcf...9263)
+        openChannelParams.funding_lock_script_cell_deps = [
+          {
+            dep_type: "code",
+            out_point: {
+              tx_hash: "0x8b3255491f3c4dcc1cfca33d5c6bcaec5409efe4bbda243900f9580c47e0242e" as `0x${string}`,
+              index: "0x1" as `0x${string}`,
+            },
+          },
+          {
+            dep_type: "code",
+            out_point: {
+              tx_hash: "0x4a596d31dc35e88fb1591debbf680b04a44b4a434e3a94453c21ea8950ffb4d9" as `0x${string}`,
+              index: "0x1" as `0x${string}`,
+            },
+          },
+          {
+            dep_type: "code",
+            out_point: {
+              tx_hash: "0x4a596d31dc35e88fb1591debbf680b04a44b4a434e3a94453c21ea8950ffb4d9" as `0x${string}`,
+              index: "0x0" as `0x${string}`,
+            },
+          },
+          {
+            dep_type: "code",
+            out_point: {
+              tx_hash: "0x95ecf9b41701b45d431657a67bbfa3f07ef7ceb53bf87097f3674e1a4a19ce62" as `0x${string}`,
+              index: "0x1" as `0x${string}`,
+            },
+          },
+          {
+            dep_type: "code",
+            out_point: {
+              tx_hash: "0xf2c9dbfe7438a8c622558da8fa912d36755271ea469d3a25cb8d3373d35c8638" as `0x${string}`,
+              index: "0x1" as `0x${string}`,
+            },
+          },
+        ];
+        console.log(`[JoyID] Added ${openChannelParams.funding_lock_script_cell_deps.length} cell deps`);
+      }
+
+      const result = await callFiberHost("openChannelWithExternalFunding", openChannelParams);
 
       console.log(`openChannelWithExternalFunding unsigned_funding_tx: ${ccc.stringify(result.unsigned_funding_tx)}`);
       console.log(`unsignedTxHash: ${ccc.Transaction.from(toCccTransaction(result.unsigned_funding_tx)).hash()}`);
 
-      const unsignedFundingTx = toCccTransaction(result.unsigned_funding_tx);
+      // Use a testnet client for all operations since fiber is only deployed on testnet
+      const testnetClient = new ccc.ClientPublicTestnet();
 
+      // Sign the final negotiated funding tx as-is. Only witnesses are updated afterward.
       let signedFundingTx: CkbJsonRpcTransaction;
       if (isJoyIdSigner(signer)) {
         if (!joyIdPopup) {
           throw new Error("JoyID popup was not opened");
         }
-        signedFundingTx = await signJoyIdFundingTx(result.unsigned_funding_tx, signer, joyIdPopup);
+        signedFundingTx = await signJoyIdFundingTx(result.unsigned_funding_tx, signer, joyIdPopup, testnetClient);
       } else {
         signedFundingTx = await walletManager.signFundingTx(result.unsigned_funding_tx, signer);
       }
-      const signedTx = ccc.Transaction.from({
-        ...unsignedFundingTx,
-        witnesses: signedFundingTx.witnesses
-      });
+      const signedTx = ccc.Transaction.from(toCccTransaction(signedFundingTx));
 
       console.log(`signedJsonTx: ${ccc.stringify(signedTx)}`);
       console.log(`signedTxHash: ${signedTx.hash()}`);
 
-      console.log(await signer.client.sendTransactionDry(signedTx));
+      // console.log(await testnetClient.sendTransactionDry(signedTx));
 
       await callFiberHost("submitSignedFundingTx", {
         channelId: result.channel_id,

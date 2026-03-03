@@ -17,6 +17,15 @@ pnpm dev
 - http://localhost:5173/
 - http://localhost:5173/demo/
 
+## External Funding 语义
+
+`fiber-js` 的 external funding 流程现在按以下语义工作：
+
+- `openChannelWithExternalFunding(params)` 仍返回 `{ channel_id, unsigned_funding_tx }`
+- 这里的 `unsigned_funding_tx` 已经是双方协商完成后的最终 unsigned funding tx，不应由前端再次重建或改写交易结构
+- 外部钱包应直接对这笔 tx 签名一次
+- `submitSignedFundingTx(params)` 仍接收 `{ channel_id, signed_funding_tx }`，提交时只能补 `witnesses` / signatures，不能修改 `inputs`、`outputs`、`outputs_data`、`cell_deps` 等交易结构字段
+
 ## 构建
 
 ```bash
