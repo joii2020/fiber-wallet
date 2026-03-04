@@ -6,7 +6,7 @@ import type {
   OpenChannelWithExternalFundingResult,
   Script
 } from "@nervosnetwork/fiber-js";
-import { __internal as fiberConfigInternal, getFiberConfig } from "./fiber-config";
+import { getFiberConfig } from "./fiber-config";
 import { stringify } from "@ckb-ccc/ccc";
 
 export type RelayInfo = {
@@ -249,9 +249,3 @@ export class FiberWasmManager {
     return this.fiber;
   }
 }
-
-export const __internal = {
-  clearCachedConfigs() {
-    fiberConfigInternal.clearCachedFiberConfigs();
-  }
-};

@@ -27,22 +27,3 @@ export const getFiberConfig = (configPath: string = DEMO_FIBER_CONFIG_PATH): Pro
   cachedFiberConfigs.set(configPath, fetchPromise);
   return fetchPromise;
 };
-
-export const getOrCreateSecretKey = (storageKey: string): `0x${string}` => {
-  const stored = localStorage.getItem(storageKey);
-  if (stored && isHex32(stored)) {
-    return stored as `0x${string}`;
-  }
-
-  const generated = new Uint8Array(32);
-  crypto.getRandomValues(generated);
-  const next = bytesToHex(generated);
-  localStorage.setItem(storageKey, next);
-  return next;
-};
-
-export const __internal = {
-  clearCachedFiberConfigs() {
-    cachedFiberConfigs = new Map<string, Promise<string>>();
-  }
-};

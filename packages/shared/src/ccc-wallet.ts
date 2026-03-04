@@ -1,6 +1,5 @@
 import { ccc } from "@ckb-ccc/ccc";
-import type { CkbJsonRpcTransaction, Script } from "@nervosnetwork/fiber-js";
-import { toFiberScript } from "./fiber-wasm";
+import type { CkbJsonRpcTransaction } from "@nervosnetwork/fiber-js";
 
 export type CkbSignerInfo = {
   id: string;
@@ -131,12 +130,6 @@ export class CccWalletManager {
 
   async signMessage(signer: ccc.Signer, message: string): Promise<ccc.Signature> {
     return signer.signMessage(message);
-  }
-
-  async getSignerFiberScript(signer: ccc.Signer): Promise<Script> {
-    const address = await signer.getRecommendedAddress();
-    const addressObj = await ccc.Address.fromString(address, signer.client);
-    return toFiberScript(addressObj.script);
   }
 
   async signFundingTx(

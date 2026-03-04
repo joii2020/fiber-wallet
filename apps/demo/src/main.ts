@@ -141,7 +141,7 @@ app.innerHTML = `
             <p>Address:</p>
             <input
               data-role="native-rpc-url"
-              value="/ip4/127.0.0.1/tcp/8248/ws/p2p/QmT1zngL9JthgGNkGoFnVhKcob1NEcBHiLmDqtCbfxa7DL"
+              value="/ip4/127.0.0.1/tcp/8248/ws/p2p/QmVtWP2GFauRK31YFPQT1yW1KmyytA3j7PHwk9YjeE9hU9"
             />
           </div>
         </section>

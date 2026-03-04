@@ -9,8 +9,7 @@ export {
 
 export {
   DEMO_FIBER_CONFIG_PATH,
-  getFiberConfig,
-  getOrCreateSecretKey
+  getFiberConfig
 } from "./fiber-config";
 
 export {
