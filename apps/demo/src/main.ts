@@ -45,16 +45,62 @@ function renderApp(): void {
     throw new Error("Missing #app element");
   }
 
+  // 添加模式切换样式
+  const style = document.createElement("style");
+  style.textContent = `
+    .badge {
+      font-size: 0.6em;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-popup {
+      background: #8957e5;
+      color: white;
+    }
+    .mode-switch-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #30363d;
+    }
+    .mode-indicator {
+      font-size: 0.85rem;
+      color: #8b949e;
+    }
+    .mode-switch {
+      font-size: 0.85rem;
+      color: #58a6ff;
+      text-decoration: none;
+      margin-left: auto;
+    }
+    .mode-switch:hover {
+      text-decoration: underline;
+    }
+  `;
+  document.head.appendChild(style);
+
   app.innerHTML = `
     <main class="page">
       <header class="hero">
         <div class="hero-row">
-          <h1>Fiber Wallet Demo</h1>
+          <h1>Fiber Wallet Demo <span class="badge badge-popup">Popup</span></h1>
           <button data-role="wallet-connect" class="wallet-button">
             <span data-role="wallet-main-label">Connect Wallet</span>
           </button>
         </div>
         <p class="sub" data-role="wallet-status">Wallet: not connected</p>
+        
+        <!-- 模式切换栏 -->
+        <div class="mode-switch-bar">
+          <span class="mode-indicator">Using window.open() popup mode</span>
+          <a href="./index-dip.html" class="mode-switch">Try DIP Iframe Mode →</a>
+        </div>
+        
         <div class="wallet-summary" data-role="wallet-summary" hidden>
           <img data-role="wallet-icon" class="wallet-summary-icon" src="${DEFAULT_APP_ICON}" alt="wallet icon" />
           <div class="wallet-summary-meta">

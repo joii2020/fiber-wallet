@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fiber Wallet Demo (DIP Iframe)</title>
+    <!--
+      Document-Isolation-Policy (DIP) Iframe Demo
+      
+      此页面演示使用 DIP + iframe 方案替代弹窗：
+      1. 不需要 window.open()，避免弹窗拦截
+      2. 使用 DIP 头部启用跨源隔离
+      3. Fiber Host 作为 iframe 嵌入，而不是弹窗
+    -->
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/main-dip.ts"></script>
+  </body>
+</html>

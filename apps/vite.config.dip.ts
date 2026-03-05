@@ -1,51 +1,30 @@
-import { resolve } from "node:path";
-import { defineConfig } from "vite";
-
 /**
- * 原始方案：COOP/COEP 头部配置
- * 用于弹窗模式的 fiber-host.html
- */
-const COOP_COEP_HEADERS = {
-  "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp"
-} as const;
-
-/**
- * 新方案：Document-Isolation-Policy (DIP) 配置
- * 用于 iframe 模式的 fiber-host-dip.html
+ * Document-Isolation-Policy (DIP) 版本的 Vite 配置
  * 
- * DIP 优势：
- * 1. 不需要切断 opener 引用（不像 COOP）
- * 2. 可以使用 iframe 嵌入，避免弹窗拦截
- * 3. 仍然启用跨源隔离环境
+ * 使用 DIP 替代 COOP/COEP，优势：
+ * 1. 不需要切断与 opener 的联系
+ * 2. 可以使用 iframe 方案替代弹窗
+ * 3. 仍然启用跨源隔离，支持 SharedArrayBuffer 等 API
  * 
- * 可选值：
+ * DIP 可选值：
  * - isolate-and-credentialless: 隔离环境，跨源请求不携带 credentials
  * - isolate-and-require-corp: 隔离环境，跨源资源需要 CORP 头部
  */
+
+import { resolve } from "node:path";
+import { defineConfig } from "vite";
+
+// Document-Isolation-Policy 配置
 const DIP_VALUE = "isolate-and-credentialless";
-const DIP_HEADERS = {
-  "Document-Isolation-Policy": DIP_VALUE
-} as const;
 
-// 判断是否为 COOP/COEP 页面（弹窗模式）
-const isCoopCoepPage = (url: string): boolean => {
-  return (
-    url === "/demo/fiber-host.html" ||
-    url.startsWith("/demo/fiber-host.html?")
-  );
-};
+// 需要 DIP 隔离的页面
+const DIP_PAGES = ["/demo/fiber-host.html", "/demo/fiber-host-dip.html"];
 
-// 判断是否为 DIP 页面（iframe 模式）
 const isDipPage = (url: string): boolean => {
-  return (
-    url === "/demo/index-dip.html" ||
-    url.startsWith("/demo/index-dip.html?") ||
-    url === "/demo/fiber-host-dip.html" ||
-    url.startsWith("/demo/fiber-host-dip.html?")
-  );
+  return DIP_PAGES.some((page) => url === page || url.startsWith(`${page}?`));
 };
 
+// 原有的 fiber-js patch
 const patchFiberJsInitSync = () => ({
   name: "patch-fiber-js-initsync",
   enforce: "pre" as const,
@@ -112,55 +91,31 @@ export default defineConfig({
       }
     },
     {
-      name: "isolation-headers",
+      name: "document-isolation-policy-headers",
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           const url = req.url ?? "";
-          
-          // COOP/COEP 方案（弹窗模式）
-          if (isCoopCoepPage(url)) {
-            for (const [key, value] of Object.entries(COOP_COEP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-            console.log(`[COOP/COEP] Applied to: ${url}`);
-          }
-          
-          // DIP 方案（iframe 模式）
+          // 为 DIP 页面添加 Document-Isolation-Policy 头部
           if (isDipPage(url)) {
-            for (const [key, value] of Object.entries(DIP_HEADERS)) {
-              res.setHeader(key, value);
-            }
+            res.setHeader("Document-Isolation-Policy", DIP_VALUE);
             console.log(`[DIP] Applied to: ${url}`);
           }
-
-          // 为 DIP 父页面添加 CORP 头部，允许被 DIP iframe 加载
-          if (url === "/demo/index-dip.html" || url.startsWith("/demo/index-dip.html?")) {
+          // 为父页面添加 CORP 头部，允许被 DIP iframe 加载
+          if (url === "/demo/" || url === "/demo/index.html") {
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           }
-          
           next();
         });
       },
       configurePreviewServer(server) {
         server.middlewares.use((req, res, next) => {
           const url = req.url ?? "";
-          
-          if (isCoopCoepPage(url)) {
-            for (const [key, value] of Object.entries(COOP_COEP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-          }
-          
           if (isDipPage(url)) {
-            for (const [key, value] of Object.entries(DIP_HEADERS)) {
-              res.setHeader(key, value);
-            }
+            res.setHeader("Document-Isolation-Policy", DIP_VALUE);
           }
-
-          if (url === "/demo/index-dip.html" || url.startsWith("/demo/index-dip.html?")) {
+          if (url === "/demo/" || url === "/demo/index.html") {
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           }
-          
           next();
         });
       }
@@ -179,13 +134,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        // 主页面
         wallet: resolve(__dirname, "index.html"),
-        // Demo（弹窗模式 - COOP/COEP）
         demo: resolve(__dirname, "demo/index.html"),
         fiberHost: resolve(__dirname, "demo/fiber-host.html"),
-        // Demo（Iframe 模式 - DIP）
-        demoDip: resolve(__dirname, "demo/index-dip.html"),
+        // DIP 版本
         fiberHostDip: resolve(__dirname, "demo/fiber-host-dip.html")
       }
     }

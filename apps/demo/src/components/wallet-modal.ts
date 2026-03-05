@@ -13,6 +13,7 @@ export interface WalletModalOptions {
 
 export class WalletModal extends BaseComponent {
   private options: WalletModalOptions;
+  private signerInfos: CkbSignerInfo[] = [];
   private modalEl: HTMLDivElement;
   private backdropEl: HTMLButtonElement;
   private closeBtnEl: HTMLButtonElement;
@@ -46,6 +47,7 @@ export class WalletModal extends BaseComponent {
    * 打开弹窗并渲染选项
    */
   open(signerInfos: CkbSignerInfo[]): void {
+    this.signerInfos = signerInfos;
     this.renderOptions(signerInfos);
     this.modalEl.classList.remove("hidden");
     this.modalEl.setAttribute("aria-hidden", "false");
@@ -134,13 +136,10 @@ export class WalletModal extends BaseComponent {
     const signerId = button.dataset.signerId;
     if (!signerId) return;
 
-    // 获取当前选项列表对应的数据（需要外部传入或存储）
-    // 这里简化处理，通过自定义事件传递
-    const customEvent = new CustomEvent("walletselect", {
-      detail: { signerId },
-      bubbles: true
-    });
-    button.dispatchEvent(customEvent);
+    const signerInfo = this.signerInfos.find((item) => item.id === signerId);
+    if (!signerInfo) return;
+
+    this.options.onSelect(signerInfo);
   }
 
   /**
