@@ -1,528 +1,342 @@
-import { Buffer } from "buffer/";
-import type {
-  CkbJsonRpcTransaction,
-  Channel,
-  OpenChannelWithExternalFundingParams,
-  OpenChannelWithExternalFundingResult
-} from "@nervosnetwork/fiber-js";
-import { FiberWasmManager } from "@fiber-wallet/shared";
+/**
+ * Fiber Host - WASM Fiber 节点运行环境
+ * 
+ * 独立窗口运行，通过 BroadcastChannel 与主页面通信
+ */
 
+import "./styles/fiber-host.css";
+import { Buffer } from "buffer/";
+import { FiberWasmManager } from "@fiber-wallet/shared";
+import type {
+  FiberHostAction,
+  FiberHostRequestMap,
+  FiberHostRequest,
+  FiberHostResponse,
+  FiberHostReady,
+  FiberHostControlMessage
+} from "./types/fiber";
+
+// Polyfills
 if (!("global" in globalThis)) {
   (globalThis as typeof globalThis & { global: typeof globalThis }).global = globalThis;
 }
-
 if (!("Buffer" in globalThis)) {
-  (
-    globalThis as typeof globalThis & {
-      Buffer: typeof Buffer;
-    }
-  ).Buffer = Buffer;
+  (globalThis as typeof globalThis & { Buffer: typeof Buffer }).Buffer = Buffer;
 }
 
-type FiberHostAction =
-  | "startFiberNode"
-  | "listChannels"
-  | "shutdownChannel"
-  | "openChannelWithExternalFunding"
-  | "submitSignedFundingTx";
-
-type FiberHostRequestMap = {
-  startFiberNode: {
-    payload: { nativeAddress: string };
-    result: { channels: Channel[] };
+/**
+ * Console UI 管理器
+ */
+class ConsoleUI {
+  private logsEl: HTMLDivElement;
+  private statusEl: HTMLParagraphElement;
+  private channelEl: HTMLSpanElement;
+  private maxEntries = 400;
+  private originalConsole: {
+    log: typeof console.log;
+    info: typeof console.info;
+    warn: typeof console.warn;
+    error: typeof console.error;
+    debug: typeof console.debug;
   };
-  listChannels: {
-    payload: undefined;
-    result: { channels: Channel[] };
-  };
-  shutdownChannel: {
-    payload: { channelId: string };
-    result: { ok: true };
-  };
-  openChannelWithExternalFunding: {
-    payload: OpenChannelWithExternalFundingParams;
-    result: OpenChannelWithExternalFundingResult;
-  };
-  submitSignedFundingTx: {
-    payload: {
-      channelId: string;
-      signedTx: CkbJsonRpcTransaction;
-    };
-    result: { ok: true };
-  };
-};
 
-type FiberHostRequest = {
-  kind: "request";
-  requestId: string;
-  action: FiberHostAction;
-  payload?: unknown;
-};
+  constructor() {
+    const app = document.querySelector<HTMLDivElement>("#app");
+    if (!app) {
+      throw new Error("Missing #app element");
+    }
 
-type FiberHostResponse = {
-  kind: "response";
-  requestId: string;
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-};
-
-type FiberHostReady = {
-  kind: "ready";
-};
-
-type FiberHostControlMessage = {
-  kind: "dispose";
-};
-
-const app = document.querySelector<HTMLDivElement>("#app");
-if (app) {
-  app.innerHTML = `
-    <main class="host-shell">
-      <style>
-        :root {
-          color-scheme: light;
-        }
-
-        body {
-          margin: 0;
-          background: #ffffff;
-          color: #111111;
-          font-family: Menlo, Monaco, "Courier New", monospace;
-        }
-
-        .host-shell {
-          min-height: 100vh;
-          background: #ffffff;
-        }
-
-        .console-panel {
-          height: 100vh;
-          display: grid;
-          grid-template-rows: auto auto minmax(0, 1fr);
-          width: 100%;
-          overflow: hidden;
-          background: #ffffff;
-        }
-
-        .console-toolbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          min-height: 44px;
-          padding: 0 12px;
-          border-bottom: 1px solid #dadce0;
-          background: #ffffff;
-          color: #111111;
-        }
-
-        .console-title {
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-        }
-
-        .bar-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          min-width: 0;
-        }
-
-        .pill {
-          max-width: min(45vw, 420px);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          border: 1px solid #dadce0;
-          border-radius: 999px;
-          padding: 5px 10px;
-          background: #f8f9fa;
-          color: #1a73e8;
-          font-size: 11px;
-        }
-
-        .tool-button {
-          border: 1px solid #dadce0;
-          border-radius: 6px;
-          padding: 6px 10px;
-          background: #ffffff;
-          color: #111111;
-          font: inherit;
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .tool-button:hover {
-          background: #f3f4f6;
-        }
-
-        .console-meta {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          min-height: 30px;
-          padding: 0 12px;
-          border-bottom: 1px solid #eceff1;
-          background: #fafafa;
-          font-size: 11px;
-          color: #5f6368;
-        }
-
-        .console-meta strong {
-          color: #111111;
-          font-weight: 500;
-        }
-
-        .console-view {
-          overflow: auto;
-          background: #ffffff;
-        }
-
-        .console-empty {
-          padding: 18px 16px;
-          color: #80868b;
-          font-size: 12px;
-          border-bottom: 1px solid #f1f3f4;
-        }
-
-        .console-row {
-          display: grid;
-          grid-template-columns: 18px 72px 1fr;
-          gap: 10px;
-          align-items: start;
-          padding: 7px 12px;
-          border-bottom: 1px solid #f1f3f4;
-          font-size: 12px;
-          line-height: 1.45;
-        }
-
-        .console-row:hover {
-          background: #f8f9fa;
-        }
-
-        .console-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 16px;
-          height: 16px;
-          margin-top: 1px;
-          border-radius: 50%;
-          font-size: 10px;
-          font-weight: 700;
-        }
-
-        .console-time {
-          color: #80868b;
-          white-space: nowrap;
-        }
-
-        .console-message {
-          margin: 0;
-          white-space: pre-wrap;
-          word-break: break-word;
-          color: #111111;
-        }
-
-        .console-row.log .console-icon {
-          color: #1a73e8;
-        }
-
-        .console-row.info .console-icon {
-          color: #1a73e8;
-        }
-
-        .console-row.debug .console-icon {
-          color: #7e57c2;
-        }
-
-        .console-row.warn {
-          background: #fffaf0;
-        }
-
-        .console-row.warn .console-icon,
-        .console-row.warn .console-message {
-          color: #b06000;
-        }
-
-        .console-row.error {
-          background: #fef1f1;
-        }
-
-        .console-row.error .console-icon,
-        .console-row.error .console-message {
-          color: #c5221f;
-        }
-      </style>
-
-      <section class="console-panel">
-        <div class="console-toolbar">
-          <span class="console-title">Console</span>
-          <div class="bar-actions">
-            <span class="pill" data-role="host-channel">Waiting for channel...</span>
-            <button type="button" data-role="clear-logs" class="tool-button">Clear console</button>
+    app.innerHTML = `
+      <main class="host-shell">
+        <section class="console-panel">
+          <div class="console-toolbar">
+            <span class="console-title">Console</span>
+            <div class="bar-actions">
+              <span class="pill" data-role="host-channel">Waiting for channel...</span>
+              <button type="button" data-role="clear-logs" class="tool-button">Clear console</button>
+            </div>
           </div>
-        </div>
-        <div class="console-meta">
-          <span><strong>Fiber Host</strong> runtime output</span>
-          <span data-role="host-status">idle</span>
-        </div>
-        <div data-role="host-logs" class="console-view">
-          <div data-role="empty-state" class="console-empty">No messages yet.</div>
-        </div>
-      </section>
-    </main>
-  `;
-}
+          <div class="console-meta">
+            <span><strong>Fiber Host</strong> runtime output</span>
+            <span data-role="host-status">idle</span>
+          </div>
+          <div data-role="host-logs" class="console-view">
+            <div data-role="empty-state" class="console-empty">No messages yet.</div>
+          </div>
+        </section>
+      </main>
+    `;
 
-const statusEl = app?.querySelector<HTMLParagraphElement>("[data-role='host-status']");
-const channelEl = app?.querySelector<HTMLSpanElement>("[data-role='host-channel']");
-const logsEl = app?.querySelector<HTMLDivElement>("[data-role='host-logs']");
-const clearLogsButton = app?.querySelector<HTMLButtonElement>("[data-role='clear-logs']");
+    this.logsEl = app.querySelector<HTMLDivElement>("[data-role='host-logs']")!;
+    this.statusEl = app.querySelector<HTMLParagraphElement>("[data-role='host-status']")!;
+    this.channelEl = app.querySelector<HTMLSpanElement>("[data-role='host-channel']")!;
 
-const MAX_LOG_ENTRIES = 400;
+    // 绑定清除按钮
+    app.querySelector<HTMLButtonElement>("[data-role='clear-logs']")?.addEventListener("click", () => {
+      this.clear();
+    });
 
-const formatConsoleValue = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value;
+    // 保存原始 console
+    this.originalConsole = {
+      log: console.log.bind(console),
+      info: console.info.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console),
+      debug: console.debug.bind(console)
+    };
+
+    // 劫持 console
+    this.hijackConsole();
+
+    // 全局错误处理
+    window.addEventListener("error", (event) => {
+      const error = event.error instanceof Error ? event.error : event.message;
+      this.append("error", ["[window.error]", error]);
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      this.append("error", ["[unhandledrejection]", event.reason]);
+    });
   }
 
-  if (value instanceof Error) {
-    return value.stack ?? `${value.name}: ${value.message}`;
+  setStatus(status: string): void {
+    this.statusEl.textContent = status;
   }
 
-  if (typeof value === "bigint") {
-    return `${value}n`;
+  setChannel(name: string): void {
+    this.channelEl.textContent = name;
   }
 
-  try {
-    return JSON.stringify(
-      value,
-      (_, nestedValue) => (typeof nestedValue === "bigint" ? `${nestedValue}n` : nestedValue),
-      2
-    );
-  } catch {
-    return String(value);
-  }
-};
-
-const appendLogEntry = (level: "log" | "info" | "warn" | "error" | "debug", values: unknown[]) => {
-  if (!logsEl) {
-    return;
+  clear(): void {
+    this.logsEl.innerHTML = '<div data-role="empty-state" class="console-empty">No messages yet.</div>';
   }
 
-  logsEl.querySelector<HTMLElement>("[data-role='empty-state']")?.remove();
+  private hijackConsole(): void {
+    const mirror = (level: keyof typeof this.originalConsole) => (...values: unknown[]) => {
+      this.originalConsole[level](...values);
+      this.append(level, values);
+    };
 
-  const entry = document.createElement("div");
-  const icon = document.createElement("span");
-  const timeEl = document.createElement("span");
-  const messageEl = document.createElement("pre");
-  const now = new Date();
-  const time = now.toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-  const message = values.map((value) => formatConsoleValue(value)).join(" ");
-  const levelIconMap: Record<typeof level, string> = {
-    log: ">",
-    info: "i",
-    warn: "!",
-    error: "x",
-    debug: "~"
-  };
-
-  entry.className = `console-row ${level}`;
-  icon.className = "console-icon";
-  icon.textContent = levelIconMap[level];
-  timeEl.className = "console-time";
-  timeEl.textContent = time;
-  messageEl.className = "console-message";
-  messageEl.textContent = message;
-
-  entry.append(icon, timeEl, messageEl);
-
-  logsEl.append(entry);
-  while (logsEl.childElementCount > MAX_LOG_ENTRIES) {
-    logsEl.firstElementChild?.remove();
+    console.log = mirror("log");
+    console.info = mirror("info");
+    console.warn = mirror("warn");
+    console.error = mirror("error");
+    console.debug = mirror("debug");
   }
-  logsEl.scrollTop = logsEl.scrollHeight;
-};
 
-clearLogsButton?.addEventListener("click", () => {
-  if (logsEl) {
-    logsEl.innerHTML = '<div data-role="empty-state" class="console-empty">No messages yet.</div>';
-  }
-});
+  private append(level: "log" | "info" | "warn" | "error" | "debug", values: unknown[]): void {
+    this.logsEl.querySelector<HTMLElement>("[data-role='empty-state]")?.remove();
 
-const originalConsole = {
-  log: console.log.bind(console),
-  info: console.info.bind(console),
-  warn: console.warn.bind(console),
-  error: console.error.bind(console),
-  debug: console.debug.bind(console)
-};
+    const entry = document.createElement("div");
+    const icon = document.createElement("span");
+    const timeEl = document.createElement("span");
+    const messageEl = document.createElement("pre");
 
-const mirrorConsole =
-  (level: keyof typeof originalConsole) =>
-  (...values: unknown[]) => {
-    originalConsole[level](...values);
-    appendLogEntry(level, values);
-  };
+    const now = new Date();
+    const time = now.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
 
-console.log = mirrorConsole("log");
-console.info = mirrorConsole("info");
-console.warn = mirrorConsole("warn");
-console.error = mirrorConsole("error");
-console.debug = mirrorConsole("debug");
+    const message = values.map((v) => this.formatValue(v)).join(" ");
+    const icons: Record<typeof level, string> = {
+      log: ">",
+      info: "i",
+      warn: "!",
+      error: "x",
+      debug: "~"
+    };
 
-window.addEventListener("error", (event) => {
-  const error = event.error instanceof Error ? event.error : event.message;
-  appendLogEntry("error", ["[window.error]", error]);
-});
+    entry.className = `console-row ${level}`;
+    icon.className = "console-icon";
+    icon.textContent = icons[level];
+    timeEl.className = "console-time";
+    timeEl.textContent = time;
+    messageEl.className = "console-message";
+    messageEl.textContent = message;
 
-window.addEventListener("unhandledrejection", (event) => {
-  appendLogEntry("error", ["[unhandledrejection]", event.reason]);
-});
+    entry.append(icon, timeEl, messageEl);
+    this.logsEl.append(entry);
 
-const channelName = new URL(window.location.href).searchParams.get("channel");
-if (!channelName) {
-  throw new Error("Missing fiber host channel");
-}
-
-if (statusEl) {
-  statusEl.textContent = "listening";
-}
-
-if (channelEl) {
-  channelEl.textContent = channelName;
-}
-
-console.log("[fiber-host] page loaded", {
-  href: window.location.href,
-  channelName
-});
-
-const channel = new BroadcastChannel(channelName);
-const fiber = new FiberWasmManager({
-  secretStorageKey: "fiber-wallet-demo:fiber-key-pair",
-  databasePrefix: "/wasm-fiber-wallet-demo",
-  logLevel: "info"
-});
-
-let isFiberStarted = false;
-let isFiberStarting = false;
-
-const ensureStarted = async (nativeAddress: string): Promise<void> => {
-  console.log("[fiber-host] ensureStarted called", {
-    nativeAddress,
-    isFiberStarted,
-    isFiberStarting
-  });
-
-  if (isFiberStarted || isFiberStarting) {
-    while (isFiberStarting) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    // 限制条目数
+    while (this.logsEl.childElementCount > this.maxEntries) {
+      this.logsEl.firstElementChild?.remove();
     }
-    return;
+
+    this.logsEl.scrollTop = this.logsEl.scrollHeight;
   }
 
-  isFiberStarting = true;
-  try {
-    console.log("[fiber-host] starting wasm fiber");
-    await fiber.start();
-    console.log("[fiber-host] wasm fiber started");
-    const relayInfo = fiber.parseRelayInfo(nativeAddress);
-    console.log("[fiber-host] connecting peer", relayInfo);
-    await fiber.connectPeer(relayInfo);
-    console.log("[fiber-host] peer connected", relayInfo);
-    isFiberStarted = true;
-  } finally {
-    isFiberStarting = false;
-  }
-};
+  private formatValue(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+    if (typeof value === "bigint") return `${value}n`;
 
-const sendResponse = (response: FiberHostResponse) => {
-  console.log("[fiber-host] sendResponse", response);
-  channel.postMessage(response);
-};
-
-const handlers: {
-  [K in FiberHostAction]: (payload: FiberHostRequestMap[K]["payload"]) => Promise<FiberHostRequestMap[K]["result"]>;
-} = {
-  async startFiberNode(payload) {
-    await ensureStarted(payload.nativeAddress);
-    return {
-      channels: await fiber.listChannels()
-    };
-  },
-  async listChannels() {
-    return {
-      channels: await fiber.listChannels()
-    };
-  },
-  async shutdownChannel(payload) {
-    await fiber.shutdownChannel(payload.channelId);
-    return { ok: true };
-  },
-  async openChannelWithExternalFunding(payload) {
-    return fiber.openChannelWithExternalFunding(payload);
-  },
-  async submitSignedFundingTx(payload) {
-    await fiber.submitSignedFundingTx(payload.channelId, payload.signedTx);
-    return { ok: true };
-  }
-};
-
-channel.addEventListener("message", (event: MessageEvent<FiberHostRequest | FiberHostControlMessage>) => {
-  const message = event.data;
-  if (!message) {
-    return;
-  }
-
-  if (message.kind === "dispose") {
-    console.log("[fiber-host] received dispose signal");
-    window.close();
-    return;
-  }
-
-  if (message.kind !== "request") {
-    return;
-  }
-
-  console.log("[fiber-host] received request", message);
-
-  void (async () => {
     try {
-      const handler = handlers[message.action];
-      const result = await handler(message.payload as never);
-      sendResponse({
+      return JSON.stringify(
+        value,
+        (_, v) => (typeof v === "bigint" ? `${v}n` : v),
+        2
+      );
+    } catch {
+      return String(value);
+    }
+  }
+}
+
+/**
+ * Fiber Host 主类
+ */
+class FiberHost {
+  private consoleUI: ConsoleUI;
+  private channel: BroadcastChannel;
+  private fiber: FiberWasmManager;
+  private isStarted = false;
+  private isStarting = false;
+
+  constructor() {
+    // 初始化 UI
+    this.consoleUI = new ConsoleUI();
+
+    // 获取 channel name
+    const channelName = new URL(window.location.href).searchParams.get("channel");
+    if (!channelName) {
+      throw new Error("Missing fiber host channel");
+    }
+
+    this.consoleUI.setChannel(channelName);
+    this.consoleUI.setStatus("listening");
+
+    // 初始化 channel
+    this.channel = new BroadcastChannel(channelName);
+
+    // 初始化 Fiber
+    this.fiber = new FiberWasmManager({
+      secretStorageKey: "fiber-wallet-demo:fiber-key-pair",
+      databasePrefix: "/wasm-fiber-wallet-demo",
+      logLevel: "info"
+    });
+
+    // 设置消息监听
+    this.setupMessageHandler();
+
+    // 发送 ready 信号
+    console.log("[fiber-host] posting ready");
+    const readyMessage: FiberHostReady = { kind: "ready" };
+    this.channel.postMessage(readyMessage);
+  }
+
+  private setupMessageHandler(): void {
+    this.channel.addEventListener("message", (event: MessageEvent<FiberHostRequest | FiberHostControlMessage>) => {
+      const message = event.data;
+      if (!message) return;
+
+      if (message.kind === "dispose") {
+        console.log("[fiber-host] received dispose signal");
+        window.close();
+        return;
+      }
+
+      if (message.kind !== "request") return;
+
+      console.log("[fiber-host] received request", message);
+      this.handleRequest(message);
+    });
+  }
+
+  private async handleRequest(request: FiberHostRequest): Promise<void> {
+    try {
+      const result = await this.executeAction(request.action, request.payload);
+      this.sendResponse({
         kind: "response",
-        requestId: message.requestId,
+        requestId: request.requestId,
         ok: true,
         result
       });
     } catch (error) {
-      sendResponse({
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.sendResponse({
         kind: "response",
-        requestId: message.requestId,
+        requestId: request.requestId,
         ok: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessage
       });
       console.error("[fiber-host] request failed", {
-        requestId: message.requestId,
-        action: message.action,
+        requestId: request.requestId,
+        action: request.action,
         error
       });
     }
-  })();
-});
+  }
 
-console.log("[fiber-host] posting ready");
-channel.postMessage({
-  kind: "ready"
-} satisfies FiberHostReady);
+  private sendResponse(response: FiberHostResponse): void {
+    console.log("[fiber-host] sendResponse", response);
+    this.channel.postMessage(response);
+  }
+
+  private async executeAction(
+    action: FiberHostAction,
+    payload: unknown
+  ): Promise<unknown> {
+    switch (action) {
+      case "startFiberNode":
+        return this.startFiberNode((payload as { nativeAddress: string }).nativeAddress);
+      case "listChannels":
+        return { channels: await this.fiber.listChannels() };
+      case "shutdownChannel":
+        await this.fiber.shutdownChannel((payload as { channelId: string }).channelId);
+        return { ok: true };
+      case "openChannelWithExternalFunding":
+        return this.fiber.openChannelWithExternalFunding(payload as FiberHostRequestMap["openChannelWithExternalFunding"]["payload"]);
+      case "submitSignedFundingTx": {
+        const p = payload as { channelId: string; signedTx: import("@nervosnetwork/fiber-js").CkbJsonRpcTransaction };
+        await this.fiber.submitSignedFundingTx(p.channelId, p.signedTx);
+        return { ok: true };
+      }
+      default:
+        throw new Error(`Unknown action: ${action}`);
+    }
+  }
+
+  private async startFiberNode(nativeAddress: string): Promise<{ channels: import("@nervosnetwork/fiber-js").Channel[] }> {
+    console.log("[fiber-host] startFiberNode called", { nativeAddress, isStarted: this.isStarted, isStarting: this.isStarting });
+
+    if (this.isStarted) {
+      return { channels: await this.fiber.listChannels() };
+    }
+
+    if (this.isStarting) {
+      // 等待启动完成
+      while (this.isStarting) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return { channels: await this.fiber.listChannels() };
+    }
+
+    this.isStarting = true;
+    try {
+      console.log("[fiber-host] starting wasm fiber");
+      await this.fiber.start();
+      console.log("[fiber-host] wasm fiber started");
+
+      const relayInfo = this.fiber.parseRelayInfo(nativeAddress);
+      console.log("[fiber-host] connecting peer", relayInfo);
+      await this.fiber.connectPeer(relayInfo);
+      console.log("[fiber-host] peer connected", relayInfo);
+
+      this.isStarted = true;
+      return { channels: await this.fiber.listChannels() };
+    } finally {
+      this.isStarting = false;
+    }
+  }
+}
+
+// 启动
+try {
+  new FiberHost();
+} catch (error) {
+  console.error("[fiber-host] initialization failed:", error);
+  document.body.innerHTML = `<pre style="color:red;padding:20px;">Failed to initialize Fiber Host: ${error instanceof Error ? error.message : String(error)}</pre>`;
+}

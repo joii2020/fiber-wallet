@@ -187,7 +187,8 @@ export class FiberWasmManager {
 
     for (let i = 0; i < 20; i += 1) {
       const peers = await fiber.listPeers();
-      const found = peers.peers.some((peer) => peer.peer_id === info.peerId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const found = peers.peers.some((peer: any) => peer.peer_id === info.peerId);
       console.log("[fiber-wasm] connectPeer poll", {
         attempt: i + 1,
         targetPeerId: info.peerId,
