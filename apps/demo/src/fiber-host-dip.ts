@@ -434,8 +434,9 @@ class FiberHostDip {
     this.isStarting = true;
     try {
       console.log("[fiber-host-dip] starting wasm fiber");
+      const startTime = Date.now();
       await this.fiber.start();
-      console.log("[fiber-host-dip] wasm fiber started");
+      console.log(`[fiber-host-dip] wasm fiber started, took ${Date.now() - startTime}ms`);
 
       const relayInfo = this.fiber.parseRelayInfo(nativeAddress);
       console.log("[fiber-host-dip] connecting peer", relayInfo);
