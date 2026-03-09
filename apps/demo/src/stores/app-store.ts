@@ -6,6 +6,10 @@
 import type { ccc } from "@ckb-ccc/ccc";
 import type { Channel } from "@nervosnetwork/fiber-js";
 import type { CkbSignerInfo } from "@fiber-wallet/shared";
+import {
+  DEFAULT_NATIVE_ADDRESS,
+  DEFAULT_NATIVE_RPC_URL
+} from "../config/constants";
 
 // 状态定义
 export interface AppState {
@@ -46,8 +50,8 @@ const initialState: AppState = {
     status: "not initialized"
   },
   nativeNode: {
-    rpcUrl: "127.0.0.1:8247",
-    address: "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmVtWP2GFauRK31YFPQT1yW1KmyytA3j7PHwk9YjeE9hU9"
+    rpcUrl: DEFAULT_NATIVE_RPC_URL,
+    address: DEFAULT_NATIVE_ADDRESS
   }
 };
 
@@ -138,18 +142,6 @@ class Store {
   }
 
   /**
-   * 批量更新状态（只触发一次通知）
-   */
-  batchUpdate(updates: Partial<AppState>): void {
-    const prevState = { ...this.state };
-    this.state = { ...this.state, ...updates };
-
-    for (const key of Object.keys(updates) as (keyof AppState)[]) {
-      this.notify(key, this.state[key], prevState[key]);
-    }
-  }
-
-  /**
    * 通知订阅者
    */
   private notify<K extends keyof AppState>(
@@ -191,33 +183,7 @@ class Store {
     }
   }
 
-  /**
-   * 重置状态
-   */
-  reset(): void {
-    this.state = JSON.parse(JSON.stringify(initialState)) as AppState;
-    // 通知所有订阅者
-    for (const key of Object.keys(this.state) as (keyof AppState)[]) {
-      this.notify(key, this.state[key], undefined as unknown as AppState[keyof AppState]);
-    }
-  }
 }
 
 // 导出单例
 export const appStore = new Store();
-
-// 便捷 hooks（用于组件）
-export function useStore<K extends keyof AppState>(
-  key: K,
-  callback: Subscriber<AppState[K]>
-): () => void {
-  return appStore.subscribe(key, callback);
-}
-
-export function useNestedStore<K extends keyof AppState, NK extends keyof AppState[K]>(
-  key: K,
-  nestedKey: NK,
-  callback: Subscriber<AppState[K][NK]>
-): () => void {
-  return appStore.subscribeNested(key, nestedKey, callback);
-}

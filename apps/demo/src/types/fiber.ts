@@ -23,7 +23,7 @@ export type FiberHostControlMessage = {
 
 export type FiberHostRequestMap = {
   startFiberNode: {
-    payload: { nativeAddress: string; ckbPrivateKey?: string };
+    payload: { nativeAddress: string };
     result: { channels: Channel[] };
   };
   listChannels: {

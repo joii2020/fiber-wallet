@@ -36,8 +36,7 @@ export const validateNativeAddress = (address: string): string | null => {
  * 验证 funding 金额是否足够
  */
 export const validateFundingAmount = (
-  amount: bigint,
-  minAmount: bigint
+  amount: bigint
 ): string | null => {
   if (amount <= 0n) {
     return `Insufficient capacity. Keep at least enough CKB for channel cell and tx fee`;

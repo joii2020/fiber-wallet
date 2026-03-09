@@ -1,18 +1,13 @@
 /**
- * Fiber Wallet Demo - 入口文件
+ * Fiber Wallet Demo - unified entry
  * 
- * 重构后的架构：
- * - 类型定义: types/
- * - 配置常量: config/
- * - 服务层: services/
- * - 状态管理: stores/
- * - UI组件: components/
- * - 工具函数: utils/
+ * 自动检测 DIP 状态并选择合适的模式：
+ * - DIP Active: 使用 FiberHostIframeBridge + FiberPanel (DIP 模式)
+ * - DIP Inactive: 使用 FiberHostBridge + FiberPanel (Popup 模式)
  */
 
 import "./style.css";
 import { Buffer } from "buffer/";
-import { ccc } from "@ckb-ccc/ccc";
 
 // Polyfills
 if (!("global" in globalThis)) {
@@ -22,19 +17,41 @@ if (!("Buffer" in globalThis)) {
   (globalThis as typeof globalThis & { Buffer: typeof Buffer }).Buffer = Buffer;
 }
 
-// 组件
 import { WalletPanel } from "./components/wallet-panel";
-import { FiberPanel } from "./components/fiber-panel";
+import { FiberPanel, type FiberPanelMode } from "./components/fiber-panel";
 
-// 服务
 import { FiberHostBridge } from "./services/fiber-host-bridge";
+import { FiberHostIframeBridge } from "./services/fiber-host-iframe-bridge";
 
-// 状态
 import { appStore } from "./stores/app-store";
 
-// 工具
-import { getEl } from "./utils/dom";
-import { DEFAULT_APP_ICON } from "./config/constants";
+import {
+  DEFAULT_APP_ICON,
+  DEFAULT_NATIVE_ADDRESS,
+  DEFAULT_NATIVE_RPC_URL
+} from "./config/constants";
+
+const isDipActive = (): boolean => {
+  // 检查传统的 crossOriginIsolated
+  if (window.crossOriginIsolated) return true;
+  
+  // 检查 DIP (Document Isolation Policy)
+  // Chrome 137+ 支持 DIP，它允许使用 SharedArrayBuffer 但 crossOriginIsolated 仍为 false
+  try {
+    // 实际测试 SharedArrayBuffer 是否可用
+    new SharedArrayBuffer(1);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const getModeLabel = (): string => (isDipActive() ? "DIP Iframe" : "Popup");
+
+/**
+ * 获取当前运行模式
+ */
+const getMode = (): FiberPanelMode => (isDipActive() ? "dip" : "popup");
 
 /**
  * 渲染应用 HTML 结构
@@ -45,8 +62,14 @@ function renderApp(): void {
     throw new Error("Missing #app element");
   }
 
-  // 添加模式切换样式
   const style = document.createElement("style");
+  const heroBadge = isDipActive()
+    ? '<span class="badge badge-dip">DIP Iframe</span>'
+    : '<span class="badge badge-popup">Popup</span>';
+  const wasmBadge = isDipActive()
+    ? '<span class="badge badge-dip">Iframe</span>'
+    : "";
+
   style.textContent = `
     .badge {
       font-size: 0.6em;
@@ -56,11 +79,15 @@ function renderApp(): void {
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .badge-popup {
-      background: #8957e5;
+    .badge-dip {
+      background: linear-gradient(135deg, #238636 0%, #1f6feb 100%);
       color: white;
     }
-    .mode-switch-bar {
+    .badge-popup {
+      background: #6e7681;
+      color: white;
+    }
+    .mode-status-bar {
       display: flex;
       align-items: center;
       gap: 16px;
@@ -68,18 +95,51 @@ function renderApp(): void {
       padding-top: 12px;
       border-top: 1px solid #30363d;
     }
-    .mode-indicator {
+    .dip-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 0.85rem;
       color: #8b949e;
     }
-    .mode-switch {
-      font-size: 0.85rem;
-      color: #58a6ff;
-      text-decoration: none;
-      margin-left: auto;
+    .dip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #da3633;
+      transition: background 0.3s;
     }
-    .mode-switch:hover {
-      text-decoration: underline;
+    .dip-dot.active {
+      background: #238636;
+      box-shadow: 0 0 8px #238636;
+    }
+    .mode-indicator {
+      margin-left: auto;
+      font-size: 0.85rem;
+      color: #8b949e;
+    }
+    .fiber-host-container {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      right: 0;
+      bottom: 0;
+      opacity: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: -1;
+    }
+    .dip-help {
+      margin-top: 12px;
+      padding: 12px 16px;
+      background: rgba(218, 54, 51, 0.1);
+      border: 1px solid rgba(218, 54, 51, 0.3);
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .dip-help p {
+      margin: 0;
+      color: #c9d1d9;
     }
   `;
   document.head.appendChild(style);
@@ -88,19 +148,19 @@ function renderApp(): void {
     <main class="page">
       <header class="hero">
         <div class="hero-row">
-          <h1>Fiber Wallet Demo <span class="badge badge-popup">Popup</span></h1>
+          <h1>Fiber Wallet Demo ${heroBadge}</h1>
           <button data-role="wallet-connect" class="wallet-button">
             <span data-role="wallet-main-label">Connect Wallet</span>
           </button>
         </div>
         <p class="sub" data-role="wallet-status">Wallet: not connected</p>
-        
-        <!-- 模式切换栏 -->
-        <div class="mode-switch-bar">
-          <span class="mode-indicator">Using window.open() popup mode</span>
-          <a href="./index-dip.html" class="mode-switch">Try DIP Iframe Mode →</a>
+        <div class="mode-status-bar">
+          <span class="dip-indicator" data-role="dip-status">
+            <span class="dip-dot"></span>
+            <span class="dip-text">Checking DIP...</span>
+          </span>
+          <span class="mode-indicator">Using ${getModeLabel()} mode</span>
         </div>
-        
         <div class="wallet-summary" data-role="wallet-summary" hidden>
           <img data-role="wallet-icon" class="wallet-summary-icon" src="${DEFAULT_APP_ICON}" alt="wallet icon" />
           <div class="wallet-summary-meta">
@@ -133,7 +193,7 @@ function renderApp(): void {
         <article class="card workspace" data-node="left">
           <div class="card-head workspace-head">
             <div class="workspace-title-actions">
-              <h2>WASM Node</h2>
+              <h2>WASM Node ${wasmBadge}</h2>
             </div>
             <span class="workspace-sub" data-role="fiber-status">status: not initialized</span>
           </div>
@@ -146,7 +206,6 @@ function renderApp(): void {
                 autocomplete="off"
                 spellcheck="false"
               />
-              <button data-role="init-fiber" class="primary">Init Fiber Node</button>
             </div>
             <div class="actions">
               <button data-role="open-channel">Open Channel</button>
@@ -189,14 +248,14 @@ function renderApp(): void {
               <p>RPC:</p>
               <input
                 data-role="native-rpc-url"
-                value="127.0.0.1:8247"
+                value="${DEFAULT_NATIVE_RPC_URL}"
               />
             </div>
             <div class="native-address">
               <p>Address:</p>
               <input
                 data-role="native-address"
-                value="/ip4/127.0.0.1/tcp/8248/ws/p2p/QmVtWP2GFauRK31YFPQT1yW1KmyytA3j7PHwk9YjeE9hU9"
+                value="${DEFAULT_NATIVE_ADDRESS}"
               />
             </div>
           </section>
@@ -228,61 +287,87 @@ function renderApp(): void {
         <ul class="wallet-options" data-role="wallet-options"></ul>
       </section>
     </div>
+
+    <div id="fiber-host-container" class="fiber-host-container" aria-hidden="true"></div>
   `;
+}
+
+function updateDipStatus(): void {
+  const statusEl = document.querySelector("[data-role='dip-status']");
+  const dotEl = statusEl?.querySelector(".dip-dot");
+  const textEl = statusEl?.querySelector(".dip-text");
+
+  if (!statusEl || !dotEl || !textEl) return;
+
+  if (isDipActive()) {
+    dotEl.classList.add("active");
+    textEl.textContent = "DIP Active";
+    return;
+  }
+
+  dotEl.classList.remove("active");
+  textEl.textContent = "DIP Unsupported / Inactive";
+  showDipHelpMessage();
+}
+
+function showDipHelpMessage(): void {
+  const hero = document.querySelector(".hero");
+  if (!hero || hero.querySelector(".dip-help")) return;
+
+  const helpDiv = document.createElement("div");
+  helpDiv.className = "dip-help";
+  helpDiv.innerHTML = `
+    <p>Current browser did not enable DIP, so this page falls back to popup mode.</p>
+  `;
+  hero.appendChild(helpDiv);
 }
 
 /**
  * 初始化应用
  */
 async function initApp(): Promise<void> {
-  // 渲染 HTML
   renderApp();
+  updateDipStatus();
 
-  // 创建 Fiber Host Bridge
-  const bridge = new FiberHostBridge();
+  // 根据模式创建对应的 Bridge 和 FiberPanel
+  const mode = getMode();
+  const bridge = isDipActive()
+    ? new FiberHostIframeBridge({
+        containerSelector: "#fiber-host-container",
+        width: "100%",
+        height: "100%"
+      })
+    : new FiberHostBridge();
 
-  // 创建 Wallet Panel
+  // 先声明 fiberPanel 变量，以便在 walletPanel 的 onConnect 中使用
+  let fiberPanel: FiberPanel;
+
   const walletPanel = new WalletPanel("#app", {
     onConnect: () => {
       console.log("[App] Wallet connected");
-      // 钱包连接后，可以自动启动 Fiber（可选）
-      // fiberPanel.autoStart();
+      // 钱包连接后自动初始化 Fiber Node
+      void fiberPanel.startFiberNode();
     },
     onError: (message) => {
       console.error("[App] Wallet error:", message);
     }
   });
 
-  // 创建 Fiber Panel
-  const fiberPanel = new FiberPanel("#app", bridge, {
+  fiberPanel = new FiberPanel("#app", bridge, {
+    mode,
     walletPanel: {
       getSigner: () => walletPanel.getSigner()
     },
     onError: (message) => {
       console.error("[App] Fiber error:", message);
-      // 显示错误状态
       appStore.setNestedState("wallet", "status", message);
     }
   });
 
-  // 初始化组件
   walletPanel.init();
   fiberPanel.init();
 
-  // 订阅全局状态变化（用于调试或全局处理）
-  appStore.subscribe("wallet", (newState, prevState) => {
-    if (newState.signer !== prevState.signer) {
-      console.log("[App] Wallet signer changed:", newState.signer ? "connected" : "disconnected");
-    }
-  });
-
-  appStore.subscribe("fiber", (newState, prevState) => {
-    if (newState.isStarted !== prevState.isStarted) {
-      console.log("[App] Fiber node:", newState.isStarted ? "started" : "stopped");
-    }
-  });
-
-  console.log("[App] Fiber Wallet Demo initialized");
+  console.log(`[App] Fiber Wallet Demo initialized in ${getModeLabel()} mode`);
 }
 
 // 启动应用

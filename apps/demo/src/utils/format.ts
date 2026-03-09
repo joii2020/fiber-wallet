@@ -3,7 +3,6 @@
  */
 
 import { ccc } from "@ckb-ccc/ccc";
-import { SHANNONS_PER_CKB } from "../config/constants";
 
 /**
  * 将 CKB 金额转换为 shannons 的 hex 字符串
@@ -59,16 +58,3 @@ export const createRequestId = (prefix: string): string => {
 export const isHex32 = (value: string): boolean => {
   return /^0x[0-9a-fA-F]{64}$/.test(value.trim());
 };
-
-/**
- * 计算最大可 funding 金额（保留必要余额）
- */
-export const calculateMaxFundingAmount = (
-  totalCapacity: bigint,
-  reserve: bigint = OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS
-): bigint => {
-  return totalCapacity > reserve ? totalCapacity - reserve : 0n;
-};
-
-// 重新导出常量以便使用
-import { OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS } from "../config/constants";

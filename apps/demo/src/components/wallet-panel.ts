@@ -183,13 +183,6 @@ export class WalletPanel extends BaseComponent {
   }
 
   /**
-   * 获取 walletManager（供外部使用）
-   */
-  getWalletManager(): CccWalletManager {
-    return this.walletManager;
-  }
-
-  /**
    * 更新 UI
    */
   private updateUI(): void {

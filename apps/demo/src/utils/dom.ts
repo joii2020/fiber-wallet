@@ -2,6 +2,8 @@
  * DOM 工具函数
  */
 
+import { JOY_ID_POPUP_HEIGHT, JOY_ID_POPUP_WIDTH } from "../config/constants";
+
 /**
  * 获取 DOM 元素，不存在则抛出错误
  */
@@ -40,33 +42,6 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
- * 绑定按钮点击事件（带 loading 状态）
- */
-export function bindButton(
-  selector: string,
-  handler: () => Promise<void>,
-  options?: {
-    onError?: (error: unknown) => void;
-    onFinally?: () => void;
-  }
-): void {
-  const button = getEl<HTMLButtonElement>(selector);
-  button.addEventListener("click", () => {
-    void (async () => {
-      button.disabled = true;
-      try {
-        await handler();
-      } catch (error) {
-        options?.onError?.(error);
-      } finally {
-        button.disabled = false;
-        options?.onFinally?.();
-      }
-    })();
-  });
-}
-
-/**
  * 安全地关闭弹窗
  */
 export const closePopupQuietly = (popup: Window | null | undefined): void => {
@@ -84,7 +59,11 @@ export const closePopupQuietly = (popup: Window | null | undefined): void => {
  * 打开 JoyID 签名弹窗
  */
 export const openJoyIdPopup = (): Window => {
-  const popup = window.open("", "joyid-sign", "popup=yes,width=420,height=720");
+  const popup = window.open(
+    "",
+    "joyid-sign",
+    `popup=yes,width=${JOY_ID_POPUP_WIDTH},height=${JOY_ID_POPUP_HEIGHT}`
+  );
   if (!popup) {
     throw new Error("Unable to open JoyID popup. Please allow popups and try again.");
   }

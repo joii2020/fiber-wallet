@@ -1,14 +1,19 @@
 /**
  * Fiber 节点面板组件
- * 管理 Fiber WASM 节点的初始化和操作
+ * 
+ * 统一的 Fiber Panel 实现，支持两种模式：
+ * - Popup 模式：使用 FiberHostBridge（BroadcastChannel + 弹窗）
+ * - DIP 模式：使用 FiberHostIframeBridge（postMessage + iframe）
+ * 
+ * 通过 bridge 抽象，两种模式可以共享相同的 UI 逻辑。
  */
 
 import { ccc } from "@ckb-ccc/ccc";
 import { signRawTransaction } from "@joyid/ckb";
-import { toCccTransaction, withFundingTxWitnesses, type CkbSignerInfo } from "@fiber-wallet/shared";
+import { toCccTransaction, withFundingTxWitnesses } from "@fiber-wallet/shared";
 import { BaseComponent } from "./base-component";
 import { appStore } from "../stores/app-store";
-import { FiberHostBridge } from "../services/fiber-host-bridge";
+import { FiberHostBridgeBase } from "../services/fiber-host-bridge-base";
 import {
   toRpcHexAmount,
   extractPeerId,
@@ -27,28 +32,48 @@ import {
   JOY_ID_TESTNET_CELL_DEPS,
   JOY_ID_TESTNET_APP_URL,
   JOY_ID_MAINNET_APP_URL,
-  DEFAULT_NATIVE_ADDRESS,
   DEFAULT_APP_ICON
 } from "../config/constants";
-import { openJoyIdPopup, closePopupQuietly, getEl } from "../utils/dom";
+import { openJoyIdPopup, closePopupQuietly } from "../utils/dom";
 import type { Channel } from "@nervosnetwork/fiber-js";
 
+/**
+ * Fiber Panel 模式
+ */
+export type FiberPanelMode = "popup" | "dip";
+
+/**
+ * Fiber Panel 选项
+ */
 export interface FiberPanelOptions {
   walletPanel: {
     getSigner: () => ccc.Signer | undefined;
   };
   onError?: (message: string) => void;
+  /** 运行模式 */
+  mode?: FiberPanelMode;
+}
+
+/**
+ * Fiber Host Bridge 接口扩展
+ * 定义 Fiber Panel 需要的 Bridge 接口
+ */
+interface FiberPanelBridge extends FiberHostBridgeBase {
+  /** 显示/打开 Fiber Host */
+  show?(): void;
+  /** 打开弹窗（仅 Popup 模式） */
+  openPopup?(): Window;
 }
 
 export class FiberPanel extends BaseComponent {
-  private bridge: FiberHostBridge;
+  private bridge: FiberPanelBridge;
   private options: FiberPanelOptions;
   private joyIdPopup: Window | null = null;
+  private mode: FiberPanelMode;
 
   // DOM 元素
   private ckbPrivateKeyInput: HTMLInputElement;
   private nativeAddressInput: HTMLInputElement;
-  private initBtn: HTMLButtonElement;
   private openChannelBtn: HTMLButtonElement;
   private newInvoiceBtn: HTMLButtonElement;
   private paymentBtn: HTMLButtonElement;
@@ -58,17 +83,17 @@ export class FiberPanel extends BaseComponent {
 
   constructor(
     containerSelector: string,
-    bridge: FiberHostBridge,
+    bridge: FiberPanelBridge,
     options: FiberPanelOptions
   ) {
     super(containerSelector);
     this.bridge = bridge;
     this.options = options;
+    this.mode = options.mode ?? "popup";
 
     // 初始化 DOM 引用
     this.ckbPrivateKeyInput = this.getElement("[data-role='fiber-ckb-private-key']");
     this.nativeAddressInput = this.getElement("[data-role='native-address']");
-    this.initBtn = this.getElement("[data-role='init-fiber']");
     this.openChannelBtn = this.getElement("[data-role='open-channel']");
     this.newInvoiceBtn = this.getElement("[data-role='new-invoice']");
     this.paymentBtn = this.getElement("[data-role='payment']");
@@ -78,7 +103,6 @@ export class FiberPanel extends BaseComponent {
   }
 
   init(): void {
-    this.addEventListener(this.initBtn, "click", () => this.startFiberNode());
     this.addEventListener(this.openChannelBtn, "click", () => this.openChannel());
     this.addEventListener(this.updateChannelsBtn, "click", () => this.refreshChannels());
     this.addEventListener(this.channelsEl, "click", (e) => this.handleChannelClick(e as MouseEvent));
@@ -100,21 +124,23 @@ export class FiberPanel extends BaseComponent {
   }
 
   /**
-   * 启动 Fiber 节点
+   * 获取当前运行模式
    */
-  private async startFiberNode(): Promise<void> {
+  getMode(): FiberPanelMode {
+    return this.mode;
+  }
+
+  /**
+   * 启动 Fiber 节点（公共方法，供外部调用）
+   */
+  async startFiberNode(): Promise<void> {
     const state = appStore.getState().fiber;
     if (state.isStarting || state.isStarted) return;
 
-    const privateKey = this.ckbPrivateKeyInput.value.trim();
-    const error = validateCkbPrivateKey(privateKey);
-    if (error) {
-      this.setFiberStatus(`status: ${error}`);
+    // 根据模式处理私钥
+    if ((this.mode === "dip" ? this.getPrivateKeyForDip() : this.getPrivateKeyForPopup()) === null) {
       return;
     }
-
-    // 保存私钥
-    localStorage.setItem(CKB_PRIVATE_KEY_STORAGE_KEY, privateKey);
 
     const nativeAddress = this.nativeAddressInput.value.trim();
     const addressError = validateNativeAddress(nativeAddress);
@@ -124,12 +150,11 @@ export class FiberPanel extends BaseComponent {
     }
 
     appStore.setNestedState("fiber", "isStarting", true);
-    this.initBtn.disabled = true;
     this.setFiberStatus("status: initializing...");
 
     try {
-      // 打开 fiber-host 弹窗
-      this.bridge.openPopup();
+      // 根据模式打开/显示 Fiber Host
+      await this.openFiberHost();
 
       const result = await this.bridge.call("startFiberNode", { nativeAddress });
       
@@ -143,7 +168,54 @@ export class FiberPanel extends BaseComponent {
       this.options.onError?.(message);
     } finally {
       appStore.setNestedState("fiber", "isStarting", false);
-      this.initBtn.disabled = false;
+    }
+  }
+
+  /**
+   * 获取 Popup 模式的私钥（必须提供）
+   */
+  private getPrivateKeyForPopup(): string | null {
+    const privateKey = this.ckbPrivateKeyInput.value.trim();
+    const error = validateCkbPrivateKey(privateKey);
+    if (error) {
+      this.setFiberStatus(`status: ${error}`);
+      return null;
+    }
+    localStorage.setItem(CKB_PRIVATE_KEY_STORAGE_KEY, privateKey);
+    return privateKey;
+  }
+
+  /**
+   * 获取 DIP 模式的私钥（可选）
+   */
+  private getPrivateKeyForDip(): string | null {
+    const rawPrivateKey = this.ckbPrivateKeyInput.value.trim();
+    if (!rawPrivateKey) {
+      localStorage.removeItem(CKB_PRIVATE_KEY_STORAGE_KEY);
+      return "";
+    }
+    
+    const error = validateCkbPrivateKey(rawPrivateKey);
+    if (error) {
+      this.setFiberStatus(`status: ${error}`);
+      return null;
+    }
+    localStorage.setItem(CKB_PRIVATE_KEY_STORAGE_KEY, rawPrivateKey);
+    return rawPrivateKey;
+  }
+
+  /**
+   * 根据模式打开 Fiber Host
+   */
+  private async openFiberHost(): Promise<void> {
+    if (this.mode === "popup") {
+      if (this.bridge.openPopup) {
+        this.bridge.openPopup();
+      }
+    } else {
+      if (this.bridge.show) {
+        this.bridge.show();
+      }
     }
   }
 
@@ -166,7 +238,7 @@ export class FiberPanel extends BaseComponent {
       }
 
       if (!appStore.getState().fiber.isStarted) {
-        throw new Error("Please click Init Fiber Node first");
+        throw new Error("Fiber node is still initializing");
       }
 
       const fundingAddressObj = await signer.getRecommendedAddressObj();
@@ -183,7 +255,7 @@ export class FiberPanel extends BaseComponent {
         ? fundingScriptCapacity - OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS
         : 0n;
 
-      const amountError = validateFundingAmount(maxFundingAmount, DEFAULT_FUNDING_AMOUNT_SHANNONS);
+      const amountError = validateFundingAmount(maxFundingAmount);
       if (amountError) {
         throw new Error(`${amountError}. Keep at least ${ccc.fixedPointToString(OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS)} CKB for channel cell and tx fee`);
       }
@@ -232,9 +304,6 @@ export class FiberPanel extends BaseComponent {
           testnetClient
         );
       } else {
-        const walletManager = this.options.walletPanel.getSigner();
-        // 这里需要通过 walletPanel 获取 walletManager 来签名
-        // 简化处理，实际应该在 walletPanel 中提供签名方法
         signedFundingTx = await this.signWithCcc(result.unsigned_funding_tx, signer);
       }
 

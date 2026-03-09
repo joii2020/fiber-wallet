@@ -142,10 +142,4 @@ export class WalletModal extends BaseComponent {
     this.options.onSelect(signerInfo);
   }
 
-  /**
-   * 触发选择回调
-   */
-  triggerSelect(signerInfo: CkbSignerInfo): void {
-    this.options.onSelect(signerInfo);
-  }
 }

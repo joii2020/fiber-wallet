@@ -73,4 +73,4 @@ export const JOY_ID_POPUP_HEIGHT = 720;
 
 // 默认 RPC 配置
 export const DEFAULT_NATIVE_RPC_URL = "127.0.0.1:8247";
-export const DEFAULT_NATIVE_ADDRESS = "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmVtWP2GFauRK31YFPQT1yW1KmyytA3j7PHwk9YjeE9hU9";
+export const DEFAULT_NATIVE_ADDRESS = "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmcMXciBEWiJjCnNCmNEy4sCdKASFWNnmBvU4BZHRd4sGT";

@@ -39,8 +39,10 @@ const isCoopCoepPage = (url: string): boolean => {
 // 判断是否为 DIP 页面（iframe 模式）
 const isDipPage = (url: string): boolean => {
   return (
-    url === "/demo/index-dip.html" ||
-    url.startsWith("/demo/index-dip.html?") ||
+    url === "/demo/" ||
+    url.startsWith("/demo/?") ||
+    url === "/demo/index.html" ||
+    url.startsWith("/demo/index.html?") ||
     url === "/demo/fiber-host-dip.html" ||
     url.startsWith("/demo/fiber-host-dip.html?")
   );
@@ -134,7 +136,12 @@ export default defineConfig({
           }
 
           // 为 DIP 父页面添加 CORP 头部，允许被 DIP iframe 加载
-          if (url === "/demo/index-dip.html" || url.startsWith("/demo/index-dip.html?")) {
+          if (
+            url === "/demo/" ||
+            url.startsWith("/demo/?") ||
+            url === "/demo/index.html" ||
+            url.startsWith("/demo/index.html?")
+          ) {
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           }
           
@@ -157,10 +164,15 @@ export default defineConfig({
             }
           }
 
-          if (url === "/demo/index-dip.html" || url.startsWith("/demo/index-dip.html?")) {
+          if (
+            url === "/demo/" ||
+            url.startsWith("/demo/?") ||
+            url === "/demo/index.html" ||
+            url.startsWith("/demo/index.html?")
+          ) {
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
           }
-          
+
           next();
         });
       }
@@ -179,13 +191,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        // 主页面
         wallet: resolve(__dirname, "index.html"),
-        // Demo（弹窗模式 - COOP/COEP）
         demo: resolve(__dirname, "demo/index.html"),
         fiberHost: resolve(__dirname, "demo/fiber-host.html"),
-        // Demo（Iframe 模式 - DIP）
-        demoDip: resolve(__dirname, "demo/index-dip.html"),
         fiberHostDip: resolve(__dirname, "demo/fiber-host-dip.html")
       }
     }
