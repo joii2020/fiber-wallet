@@ -1,5 +1,5 @@
 /**
- * 钱包选择弹窗组件
+ * Wallet selection modal component
  */
 
 import type { CkbSignerInfo } from "@fiber-wallet/shared";
@@ -40,11 +40,11 @@ export class WalletModal extends BaseComponent {
   }
 
   render(): void {
-    // 初始状态为空
+    // Initial state is empty
   }
 
   /**
-   * 打开弹窗并渲染选项
+   * Open modal and render options
    */
   open(signerInfos: CkbSignerInfo[]): void {
     this.signerInfos = signerInfos;
@@ -54,7 +54,7 @@ export class WalletModal extends BaseComponent {
   }
 
   /**
-   * 关闭弹窗
+   * Close modal
    */
   close(): void {
     this.modalEl.classList.add("hidden");
@@ -63,7 +63,7 @@ export class WalletModal extends BaseComponent {
   }
 
   /**
-   * 渲染钱包选项列表
+   * Render wallet options list
    */
   private renderOptions(infos: CkbSignerInfo[]): void {
     this.optionsListEl.innerHTML = "";
@@ -84,7 +84,7 @@ export class WalletModal extends BaseComponent {
   }
 
   /**
-   * 创建单个选项元素
+   * Create single option element
    */
   private createOptionItem(info: CkbSignerInfo): HTMLLIElement {
     const li = this.createElement("li");
@@ -126,7 +126,7 @@ export class WalletModal extends BaseComponent {
   }
 
   /**
-   * 处理选项点击
+   * Handle option click
    */
   private handleOptionClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;

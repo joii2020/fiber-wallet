@@ -1,9 +1,9 @@
 /**
  * Fiber Wallet Demo - unified entry
  * 
- * 自动检测 DIP 状态并选择合适的模式：
- * - DIP Active: 使用 FiberHostIframeBridge + FiberPanel (DIP 模式)
- * - DIP Inactive: 使用 FiberHostBridge + FiberPanel (Popup 模式)
+ * Automatically detects DIP status and selects appropriate mode:
+ * - DIP Active: Uses FiberHostIframeBridge + FiberPanel (DIP mode)
+ * - DIP Inactive: Uses FiberHostBridge + FiberPanel (Popup mode)
  */
 
 import "./style.css";
@@ -32,13 +32,13 @@ import {
 } from "./config/constants";
 
 const isDipActive = (): boolean => {
-  // 检查传统的 crossOriginIsolated
+  // Check traditional crossOriginIsolated
   if (window.crossOriginIsolated) return true;
   
-  // 检查 DIP (Document Isolation Policy)
-  // Chrome 137+ 支持 DIP，它允许使用 SharedArrayBuffer 但 crossOriginIsolated 仍为 false
+  // Check DIP (Document Isolation Policy)
+  // Chrome 137+ supports DIP, which allows SharedArrayBuffer but crossOriginIsolated remains false
   try {
-    // 实际测试 SharedArrayBuffer 是否可用
+    // Actually test if SharedArrayBuffer is available
     new SharedArrayBuffer(1);
     return true;
   } catch {
@@ -49,12 +49,12 @@ const isDipActive = (): boolean => {
 const getModeLabel = (): string => (isDipActive() ? "DIP Iframe" : "Popup");
 
 /**
- * 获取当前运行模式
+ * Get current running mode
  */
 const getMode = (): FiberPanelMode => (isDipActive() ? "dip" : "popup");
 
 /**
- * 渲染应用 HTML 结构
+ * Render app HTML structure
  */
 function renderApp(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
@@ -323,13 +323,13 @@ function showDipHelpMessage(): void {
 }
 
 /**
- * 初始化应用
+ * Initialize application
  */
 async function initApp(): Promise<void> {
   renderApp();
   updateDipStatus();
 
-  // 根据模式创建对应的 Bridge 和 FiberPanel
+  // Create Bridge and FiberPanel based on mode
   const mode = getMode();
   const bridge = isDipActive()
     ? new FiberHostIframeBridge({
@@ -339,13 +339,13 @@ async function initApp(): Promise<void> {
       })
     : new FiberHostBridge();
 
-  // 先声明 fiberPanel 变量，以便在 walletPanel 的 onConnect 中使用
+  // Declare fiberPanel variable first for use in walletPanel's onConnect
   let fiberPanel: FiberPanel;
 
   const walletPanel = new WalletPanel("#app", {
     onConnect: () => {
       console.log("[App] Wallet connected");
-      // 钱包连接后自动初始化 Fiber Node
+      // Automatically initialize Fiber Node after wallet connection
       void fiberPanel.startFiberNode();
     },
     onError: (message) => {
@@ -370,7 +370,7 @@ async function initApp(): Promise<void> {
   console.log(`[App] Fiber Wallet Demo initialized in ${getModeLabel()} mode`);
 }
 
-// 启动应用
+// Start application
 document.addEventListener("DOMContentLoaded", () => {
   void initApp();
 });

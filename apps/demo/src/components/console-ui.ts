@@ -1,19 +1,19 @@
 /**
- * Console UI 组件
+ * Console UI Component
  * 
- * Fiber Host 的控制台界面管理器，支持多种显示模式：
- * - Popup 模式：传统弹窗
- * - Iframe 模式：嵌入 iframe
+ * Fiber Host console interface manager supporting multiple display modes:
+ * - Popup mode: traditional popup
+ * - Iframe mode: embedded iframe
  * 
- * 提供统一的日志显示、状态管理和控制台输出劫持功能。
+ * Provides unified log display, status management, and console output hijacking functionality.
  */
 
 export interface ConsoleUIOptions {
-  /** 运行模式标识 */
+  /** Running mode identifier */
   mode?: string;
-  /** 是否显示跨域隔离状态 */
+  /** Whether to show cross-origin isolation status */
   showIsolationStatus?: boolean;
-  /** 最大日志条目数 */
+  /** Maximum number of log entries */
   maxEntries?: number;
 }
 
@@ -39,11 +39,11 @@ export class ConsoleUI {
       throw new Error("Missing #app element");
     }
 
-    // 构建工具栏内容
+    // Build toolbar content
     const toolbarItems: string[] = [];
     
     if (mode) {
-      // 检查隔离状态（支持 DIP 和传统 crossOriginIsolated）
+      // Check isolation status (supports DIP and traditional crossOriginIsolated)
       let isIsolated = window.crossOriginIsolated;
       if (!isIsolated && showIsolationStatus) {
         try {
@@ -88,12 +88,12 @@ export class ConsoleUI {
     this.logsEl = app.querySelector<HTMLDivElement>("[data-role='host-logs']")!;
     this.statusEl = app.querySelector<HTMLParagraphElement>("[data-role='host-status']")!;
     this.channelEl = app.querySelector<HTMLSpanElement>("[data-role='host-channel']")!;
-    // 绑定清除按钮
+    // Bind clear button
     app.querySelector<HTMLButtonElement>("[data-role='clear-logs']")?.addEventListener("click", () => {
       this.clear();
     });
 
-    // 保存原始 console
+    // Save original console
     this.originalConsole = {
       log: console.log.bind(console),
       info: console.info.bind(console),
@@ -102,10 +102,10 @@ export class ConsoleUI {
       debug: console.debug.bind(console)
     };
 
-    // 劫持 console
+    // Hijack console
     this.hijackConsole();
 
-    // 全局错误处理
+    // Global error handling
     window.addEventListener("error", (event) => {
       const error = event.error instanceof Error ? event.error : event.message;
       this.append("error", ["[window.error]", error]);
@@ -115,7 +115,7 @@ export class ConsoleUI {
       this.append("error", ["[unhandledrejection]", event.reason]);
     });
 
-    // 记录初始化信息
+    // Log initialization info
     this.originalConsole.log("[ConsoleUI] initialized", { mode, crossOriginIsolated: window.crossOriginIsolated });
   }
 
@@ -180,7 +180,7 @@ export class ConsoleUI {
     entry.append(icon, timeEl, messageEl);
     this.logsEl.append(entry);
 
-    // 限制条目数
+    // Limit number of entries
     while (this.logsEl.childElementCount > this.maxEntries) {
       this.logsEl.firstElementChild?.remove();
     }

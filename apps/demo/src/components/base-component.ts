@@ -1,6 +1,6 @@
 /**
- * 组件基类
- * 提供基础的生命周期和 DOM 操作方法
+ * Component Base Class
+ * Provides basic lifecycle and DOM operation methods
  */
 
 import { getEl, createElement } from "../utils/dom";
@@ -15,17 +15,17 @@ export abstract class BaseComponent {
   }
 
   /**
-   * 初始化组件（子类应重写）
+   * Initialize component (subclasses should override)
    */
   abstract init(): void;
 
   /**
-   * 渲染组件（子类应重写）
+   * Render component (subclasses should override)
    */
   abstract render(): void;
 
   /**
-   * 销毁组件
+   * Destroy component
    */
   destroy(): void {
     this.removeAllEventListeners();
@@ -33,7 +33,7 @@ export abstract class BaseComponent {
   }
 
   /**
-   * 安全地添加事件监听
+   * Safely add event listener
    */
   protected addEventListener<K extends keyof HTMLElementEventMap>(
     element: EventTarget,
@@ -50,7 +50,7 @@ export abstract class BaseComponent {
   }
 
   /**
-   * 移除所有事件监听
+   * Remove all event listeners
    */
   private removeAllEventListeners(): void {
     for (const { element, type, listener } of this.eventListeners) {
@@ -60,7 +60,7 @@ export abstract class BaseComponent {
   }
 
   /**
-   * 获取容器内的元素
+   * Get element within container
    */
   protected getElement<T extends Element>(selector: string): T {
     const el = this.container.querySelector<T>(selector);
@@ -71,7 +71,7 @@ export abstract class BaseComponent {
   }
 
   /**
-   * 创建子元素
+   * Create child element
    */
   protected createElement<K extends keyof HTMLElementTagNameMap>(
     tag: K,

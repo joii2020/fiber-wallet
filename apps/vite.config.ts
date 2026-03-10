@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 /**
- * 原始方案：COOP/COEP 头部配置
- * 用于弹窗模式的 fiber-host.html
+ * Original solution: COOP/COEP header configuration
+ * For popup mode fiber-host.html
  */
 const COOP_COEP_HEADERS = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -11,24 +11,24 @@ const COOP_COEP_HEADERS = {
 } as const;
 
 /**
- * 新方案：Document-Isolation-Policy (DIP) 配置
- * 用于 iframe 模式的 fiber-host-dip.html
+ * New solution: Document-Isolation-Policy (DIP) configuration
+ * For iframe mode fiber-host-dip.html
  * 
- * DIP 优势：
- * 1. 不需要切断 opener 引用（不像 COOP）
- * 2. 可以使用 iframe 嵌入，避免弹窗拦截
- * 3. 仍然启用跨源隔离环境
+ * DIP advantages:
+ * 1. Does not need to cut opener reference (unlike COOP)
+ * 2. Can use iframe embedding, avoiding popup blocking
+ * 3. Still enables cross-origin isolation environment
  * 
- * 可选值：
- * - isolate-and-credentialless: 隔离环境，跨源请求不携带 credentials
- * - isolate-and-require-corp: 隔离环境，跨源资源需要 CORP 头部
+ * Optional values:
+ * - isolate-and-credentialless: Isolated environment, cross-origin requests don't carry credentials
+ * - isolate-and-require-corp: Isolated environment, cross-origin resources need CORP headers
  */
 const DIP_VALUE = "isolate-and-credentialless";
 const DIP_HEADERS = {
   "Document-Isolation-Policy": DIP_VALUE
 } as const;
 
-// 判断是否为 COOP/COEP 页面（弹窗模式）
+// Check if COOP/COEP page (popup mode)
 const isCoopCoepPage = (url: string): boolean => {
   return (
     url === "/demo/fiber-host.html" ||
@@ -36,7 +36,7 @@ const isCoopCoepPage = (url: string): boolean => {
   );
 };
 
-// 判断是否为 DIP 页面（iframe 模式）
+// Check if DIP page (iframe mode)
 const isDipPage = (url: string): boolean => {
   return (
     url === "/demo/" ||
@@ -119,7 +119,7 @@ export default defineConfig({
         server.middlewares.use((req, res, next) => {
           const url = req.url ?? "";
           
-          // COOP/COEP 方案（弹窗模式）
+          // COOP/COEP solution (popup mode)
           if (isCoopCoepPage(url)) {
             for (const [key, value] of Object.entries(COOP_COEP_HEADERS)) {
               res.setHeader(key, value);
@@ -127,7 +127,7 @@ export default defineConfig({
             console.log(`[COOP/COEP] Applied to: ${url}`);
           }
           
-          // DIP 方案（iframe 模式）
+          // DIP solution (iframe mode)
           if (isDipPage(url)) {
             for (const [key, value] of Object.entries(DIP_HEADERS)) {
               res.setHeader(key, value);
@@ -135,7 +135,7 @@ export default defineConfig({
             console.log(`[DIP] Applied to: ${url}`);
           }
 
-          // 为 DIP 父页面添加 CORP 头部，允许被 DIP iframe 加载
+          // Add CORP headers for DIP parent page to allow loading by DIP iframe
           if (
             url === "/demo/" ||
             url.startsWith("/demo/?") ||

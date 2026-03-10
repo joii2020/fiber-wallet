@@ -1,8 +1,8 @@
 /**
- * Fiber Host Bridge 服务 - BroadcastChannel 实现
+ * Fiber Host Bridge Service - BroadcastChannel Implementation
  * 
- * 使用 BroadcastChannel 与 fiber-host 窗口通信
- * 适用于同源的弹窗模式
+ * Uses BroadcastChannel to communicate with fiber-host window
+ * Suitable for same-origin popup mode
  */
 
 import { FiberHostBridgeBase } from "./fiber-host-bridge-base";
@@ -18,11 +18,11 @@ import {
 import { closePopupQuietly } from "../utils/dom";
 
 export interface PopupBridgeOptions {
-  /** fiber-host 页面 URL */
+  /** fiber-host page URL */
   hostUrl?: string;
-  /** 弹窗宽度 */
+  /** Popup width */
   width?: number;
-  /** 弹窗高度 */
+  /** Popup height */
   height?: number;
 }
 
@@ -42,10 +42,10 @@ export class FiberHostBridge extends FiberHostBridgeBase {
       ...options
     };
 
-    // 初始化 BroadcastChannel
+    // Initialize BroadcastChannel
     this.channel = new BroadcastChannel(this.channelName);
 
-    // 构建 fiber-host URL
+    // Build fiber-host URL
     const fiberHostUrlObject = new URL(this.popupOptions.hostUrl, import.meta.url);
     fiberHostUrlObject.searchParams.set("channel", this.channelName);
     this.fiberHostUrl = fiberHostUrlObject.toString();
@@ -54,7 +54,7 @@ export class FiberHostBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 设置 BroadcastChannel 消息监听
+   * Setup BroadcastChannel message listener
    */
   private setupChannelListener(): void {
     this.channel.addEventListener("message", (event: MessageEvent<FiberHostResponse | FiberHostReady>) => {
@@ -69,7 +69,7 @@ export class FiberHostBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 打开 Fiber Host 弹窗
+   * Open Fiber Host popup
    */
   openPopup(): Window {
     console.log("[FiberHostBridge] opening fiber host window", { url: this.fiberHostUrl });
@@ -87,16 +87,16 @@ export class FiberHostBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 发送请求
+   * Send request
    */
   protected sendRequest(request: import("../types/fiber").FiberHostRequest): void {
     this.channel.postMessage(request);
   }
   /**
-   * 清理资源
+   * Clean up resources
    */
   dispose(): void {
-    // 发送 dispose 信号
+    // Send dispose signal
     const message: import("../types/fiber").FiberHostControlMessage = { kind: "dispose" };
     this.channel.postMessage(message);
     

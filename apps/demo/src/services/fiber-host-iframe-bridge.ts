@@ -1,14 +1,14 @@
 /**
- * Fiber Host Iframe Bridge 服务 - Document-Isolation-Policy (DIP) 实现
+ * Fiber Host Iframe Bridge Service - Document-Isolation-Policy (DIP) Implementation
  * 
- * 使用 Document-Isolation-Policy (DIP) + iframe 方案
- * 替代传统的 window.open 弹窗方案
+ * Uses Document-Isolation-Policy (DIP) + iframe solution
+ * Alternative to traditional window.open popup solution
  * 
- * 优势：
- * 1. 无弹窗拦截问题
- * 2. 更好的用户体验（内嵌在主页面中）
- * 3. 使用 DIP 头部启用跨源隔离，支持 SharedArrayBuffer
- * 4. 保持与 fiber-host 的通信能力
+ * Advantages:
+ * 1. No popup blocking issues
+ * 2. Better user experience (embedded in main page)
+ * 3. Uses DIP headers to enable cross-origin isolation, supporting SharedArrayBuffer
+ * 4. Maintains communication capability with fiber-host
  */
 
 import { FiberHostBridgeBase } from "./fiber-host-bridge-base";
@@ -20,13 +20,13 @@ import type {
 } from "../types/fiber";
 
 export interface IframeBridgeOptions {
-  /** iframe 容器元素选择器 */
+  /** iframe container element selector */
   containerSelector?: string;
-  /** iframe 宽度 */
+  /** iframe width */
   width?: string;
-  /** iframe 高度 */
+  /** iframe height */
   height?: string;
-  /** fiber-host 页面 URL */
+  /** fiber-host page URL */
   hostUrl?: string;
 }
 
@@ -47,28 +47,28 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
       ...options
     };
 
-    // 构建 fiber-host URL
+    // Build fiber-host URL
     const fiberHostUrlObject = new URL(this.iframeOptions.hostUrl, window.location.href);
     fiberHostUrlObject.searchParams.set("channel", this.channelName);
     this.fiberHostUrl = fiberHostUrlObject.toString();
 
-    // 绑定消息处理器
+    // Bind message handler
     this.messageHandler = this.handlePostMessage.bind(this);
     this.setupMessageListener();
   }
 
   /**
-   * 设置 postMessage 消息监听
+   * Setup postMessage message listener
    */
   private setupMessageListener(): void {
     window.addEventListener("message", this.messageHandler);
   }
 
   /**
-   * 处理 postMessage 消息
+   * Handle postMessage
    */
   private handlePostMessage(event: MessageEvent): void {
-    // 安全检查：验证消息来源
+    // Security check: verify message source
     if (!this.iframe?.contentWindow) return;
     if (event.source !== this.iframe.contentWindow) return;
 
@@ -77,32 +77,32 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
 
     console.log("[FiberHostIframeBridge] received message", message);
 
-    // 处理 ready 消息
+    // Handle ready message
     if (message.kind === "ready") {
       this.handleReadyMessage(message as FiberHostReady);
       return;
     }
 
-    // 处理 disposed 消息
+    // Handle disposed message
     if (message.kind === "disposed") {
       this.cleanup();
       return;
     }
 
-    // 处理响应消息
+    // Handle response message
     this.handleResponseMessage(message as FiberHostResponse);
   }
 
   /**
-   * 创建并显示 iframe
+   * Create and display iframe
    */
   createIframe(): HTMLIFrameElement {
     console.log("[FiberHostIframeBridge] creating iframe", { url: this.fiberHostUrl });
 
-    // 查找或创建容器
+    // Find or create container
     let container = document.querySelector<HTMLElement>(this.iframeOptions.containerSelector);
     if (!container) {
-      // 自动创建容器
+      // Auto-create container
       container = document.createElement("div");
       container.id = this.iframeOptions.containerSelector.replace("#", "");
       container.style.cssText = `
@@ -120,7 +120,7 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
       document.body.appendChild(container);
     }
 
-    // 创建 iframe
+    // Create iframe
     this.iframe = document.createElement("iframe");
     this.iframe.src = this.fiberHostUrl;
     this.iframe.style.cssText = `
@@ -131,7 +131,7 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
     `;
     this.iframe.title = "Fiber Host";
 
-    // 添加到容器
+    // Add to container
     container.appendChild(this.iframe);
 
     console.log("[FiberHostIframeBridge] iframe created");
@@ -139,7 +139,7 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 显示 iframe（如果不存在则创建）
+   * Show iframe (create if not exists)
    */
   show(): void {
     if (!this.iframe) {
@@ -148,7 +148,7 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 发送请求
+   * Send request
    */
   protected sendRequest(request: FiberHostRequest): void {
     this.iframe?.contentWindow?.postMessage(
@@ -157,10 +157,10 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
     );
   }
   /**
-   * 清理资源
+   * Clean up resources
    */
   dispose(): void {
-    // 发送 dispose 信号
+    // Send dispose signal
     this.iframe?.contentWindow?.postMessage(
       { kind: "dispose", source: "fiber-host-parent" },
       "*"
@@ -171,7 +171,7 @@ export class FiberHostIframeBridge extends FiberHostBridgeBase {
   }
 
   /**
-   * 内部清理
+   * Internal cleanup
    */
   private cleanup(): void {
     window.removeEventListener("message", this.messageHandler);

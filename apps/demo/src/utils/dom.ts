@@ -1,11 +1,11 @@
 /**
- * DOM 工具函数
+ * DOM utility functions
  */
 
 import { JOY_ID_POPUP_HEIGHT, JOY_ID_POPUP_WIDTH } from "../config/constants";
 
 /**
- * 获取 DOM 元素，不存在则抛出错误
+ * Get DOM element, throw error if not exists
  */
 export function getEl<T extends Element>(selector: string): T {
   const el = document.querySelector<T>(selector);
@@ -16,7 +16,7 @@ export function getEl<T extends Element>(selector: string): T {
 }
 
 /**
- * 创建元素并设置属性
+ * Create element and set attributes
  */
 export function createElement<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -42,7 +42,7 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
- * 安全地关闭弹窗
+ * Safely close popup
  */
 export const closePopupQuietly = (popup: Window | null | undefined): void => {
   if (!popup || popup.closed) {
@@ -51,12 +51,12 @@ export const closePopupQuietly = (popup: Window | null | undefined): void => {
   try {
     popup.close();
   } catch {
-    // 忽略跨域弹窗关闭失败
+    // Ignore cross-origin popup close failure
   }
 };
 
 /**
- * 打开 JoyID 签名弹窗
+ * Open JoyID signature popup
  */
 export const openJoyIdPopup = (): Window => {
   const popup = window.open(

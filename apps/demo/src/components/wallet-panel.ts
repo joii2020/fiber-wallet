@@ -1,6 +1,6 @@
 /**
- * 钱包面板组件
- * 管理钱包连接状态、余额显示等
+ * Wallet Panel Component
+ * Manages wallet connection status, balance display, etc.
  */
 
 import { ccc } from "@ckb-ccc/ccc";
@@ -22,7 +22,7 @@ export class WalletPanel extends BaseComponent {
   private modal: WalletModal;
   private options: WalletPanelOptions;
 
-  // DOM 元素引用
+  // DOM element references
   private connectBtn: HTMLButtonElement;
   private mainLabelEl: HTMLSpanElement;
   private statusEl: HTMLParagraphElement;
@@ -40,7 +40,7 @@ export class WalletPanel extends BaseComponent {
       appName: "Fiber Wallet Demo"
     });
 
-    // 初始化 DOM 引用
+    // Initialize DOM references
     this.connectBtn = this.getElement("[data-role='wallet-connect']");
     this.mainLabelEl = this.getElement("[data-role='wallet-main-label']");
     this.statusEl = this.getElement("[data-role='wallet-status']");
@@ -50,7 +50,7 @@ export class WalletPanel extends BaseComponent {
     this.addressEl = this.getElement("[data-role='wallet-address']");
     this.refreshBtn = this.getElement("[data-role='wallet-balance-refresh']");
 
-    // 初始化弹窗
+    // Initialize modal
     this.modal = new WalletModal(containerSelector, {
       onSelect: (info) => this.handleWalletSelect(info),
       onClose: () => this.handleModalClose()
@@ -62,7 +62,7 @@ export class WalletPanel extends BaseComponent {
     this.addEventListener(this.connectBtn, "click", () => this.openWalletSelector());
     this.addEventListener(this.refreshBtn, "click", () => this.refreshBalance());
 
-    // 监听存储变化
+    // Listen for store changes
     appStore.subscribeNested("wallet", "signer", () => this.updateUI());
     appStore.subscribeNested("wallet", "balance", () => this.updateUI());
     appStore.subscribeNested("wallet", "address", () => this.updateUI());
@@ -75,7 +75,7 @@ export class WalletPanel extends BaseComponent {
   }
 
   /**
-   * 打开钱包选择器
+   * Open wallet selector
    */
   private async openWalletSelector(): Promise<void> {
     this.connectBtn.disabled = true;
@@ -102,7 +102,7 @@ export class WalletPanel extends BaseComponent {
   }
 
   /**
-   * 处理钱包选择
+   * Handle wallet selection
    */
   private async handleWalletSelect(info: CkbSignerInfo): Promise<void> {
     this.connectBtn.disabled = true;
@@ -112,16 +112,16 @@ export class WalletPanel extends BaseComponent {
     try {
       const connected = await this.walletManager.connectSigner(info.signer);
       
-      // 更新状态
+      // Update status
       appStore.setNestedState("wallet", "signer", connected.signer);
       appStore.setNestedState("wallet", "address", connected.address);
       appStore.setNestedState("wallet", "signerInfo", info);
       appStore.setNestedState("wallet", "status", `Wallet: connected (${info.label})`);
 
-      // 加载余额
+      // Load balance
       await this.refreshBalance();
 
-      // 触发连接回调
+      // Trigger connection callback
       this.options.onConnect?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -137,14 +137,14 @@ export class WalletPanel extends BaseComponent {
   }
 
   /**
-   * 处理弹窗关闭
+   * Handle modal close
    */
   private handleModalClose(): void {
-    // 如果需要，可以在这里处理弹窗关闭后的逻辑
+    // If needed, handle logic after modal closes here
   }
 
   /**
-   * 刷新余额
+   * Refresh balance
    */
   async refreshBalance(): Promise<void> {
     const signer = appStore.getState().wallet.signer;
@@ -169,21 +169,21 @@ export class WalletPanel extends BaseComponent {
       appStore.setNestedState("wallet", "balance", totalCapacity);
     } catch (error) {
       console.warn("Failed to load wallet balance", error);
-      // 保持 null 表示加载失败
+      // Keep null to indicate load failure
     } finally {
       this.refreshBtn.disabled = false;
     }
   }
 
   /**
-   * 获取当前 signer
+   * Get current signer
    */
   getSigner(): ccc.Signer | undefined {
     return appStore.getState().wallet.signer;
   }
 
   /**
-   * 更新 UI
+   * Update UI
    */
   private updateUI(): void {
     const { signer, signerInfo, balance, address } = appStore.getState().wallet;
@@ -204,7 +204,7 @@ export class WalletPanel extends BaseComponent {
   }
 
   /**
-   * 更新状态文本
+   * Update status text
    */
   private updateStatus(): void {
     this.statusEl.textContent = appStore.getState().wallet.status;

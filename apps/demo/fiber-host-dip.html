@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fiber Host (DIP)</title>
     <!--
-      Document-Isolation-Policy (DIP) 版本
+      Document-Isolation-Policy (DIP) Version
       
-      此页面使用 DIP 头部启用跨源隔离，优势：
-      1. 可以被同源的 iframe 加载，不需要弹窗
-      2. 保持与父页面的引用关系
-      3. 启用跨源隔离环境（crossOriginIsolated）
+      This page uses DIP headers to enable cross-origin isolation, advantages:
+      1. Can be loaded by same-origin iframe, no popup needed
+      2. Maintains reference relationship with parent page
+      3. Enables cross-origin isolation environment (crossOriginIsolated)
       
-      DIP 值说明：
-      - isolate-and-credentialless: 隔离环境，跨源请求不携带 credentials
-      - isolate-and-require-corp: 隔离环境，跨源资源需要 CORP 头部
+      DIP value description:
+      - isolate-and-credentialless: Isolated environment, cross-origin requests don't carry credentials
+      - isolate-and-require-corp: Isolated environment, cross-origin resources need CORP headers
     -->
   </head>
   <body>

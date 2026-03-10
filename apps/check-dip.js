@@ -1,24 +1,24 @@
-// 检查 DIP 支持情况
-console.log("=== Document-Isolation-Policy (DIP) 支持检查 ===\n");
+// Check DIP support
+console.log("=== Document-Isolation-Policy (DIP) Support Check ===\n");
 
-console.log("1. Chrome 版本检查:");
-console.log("   用户代理:", navigator.userAgent);
-console.log("   DIP 需要 Chrome 137+ (2025年5月发布)\n");
+console.log("1. Chrome Version Check:");
+console.log("   User Agent:", navigator.userAgent);
+console.log("   DIP requires Chrome 137+ (May 2025 release)\n");
 
-console.log("2. crossOriginIsolated 状态:");
-console.log("   ", window.crossOriginIsolated ? "✅ 已启用" : "❌ 未启用");
+console.log("2. crossOriginIsolated Status:");
+console.log("   ", window.crossOriginIsolated ? "✅ Enabled" : "❌ Not Enabled");
 
-console.log("\n3. DIP 头部检测:");
-// 无法直接读取响应头，但可以通过其他方式推断
-console.log("   请检查 DevTools Network 面板查看响应头");
+console.log("\n3. DIP Header Detection:");
+// Cannot directly read response headers, but can infer through other methods
+console.log("   Please check DevTools Network panel to view response headers");
 
-console.log("\n4. 如何启用 DIP:");
-console.log("   方法 1: 升级到 Chrome 137+");
-console.log("   方法 2: 启用实验性标志:");
+console.log("\n4. How to Enable DIP:");
+console.log("   Method 1: Upgrade to Chrome 137+");
+console.log("   Method 2: Enable experimental flag:");
 console.log("     chrome://flags/#document-isolation-policy");
-console.log("   方法 3: 申请 Origin Trial");
+console.log("   Method 3: Apply for Origin Trial");
 console.log("     https://developer.chrome.com/origintrials");
 
-console.log("\n5. 替代方案:");
-console.log("   如果 DIP 不可用，继续使用 COOP/COEP 方案");
-console.log("   (demo/index.html - 弹窗模式)");
+console.log("\n5. Alternative Solution:");
+console.log("   If DIP is not available, continue using COOP/COEP solution");
+console.log("   (demo/index.html - popup mode)");

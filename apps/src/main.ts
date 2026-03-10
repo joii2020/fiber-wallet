@@ -11,7 +11,7 @@ app.innerHTML = `
     <section class="card">
       <p class="badge">Fiber Wallet</p>
       <h1>Wallet + Demo Shared Lib</h1>
-      <p class="desc">该页面与 /demo 共用同一个 CCC 钱包连接管理库，方便演示 fiber 与钱包联动。</p>
+      <p class="desc">This page shares the same CCC wallet connection management library with /demo, facilitating demonstration of fiber and wallet interaction.</p>
 
       <div class="actions">
         <button data-role="wallet-refresh">Refresh Wallets</button>

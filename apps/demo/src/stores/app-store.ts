@@ -1,6 +1,6 @@
 /**
- * 应用状态管理
- * 轻量级响应式状态管理，基于订阅模式
+ * Application State Management
+ * Lightweight reactive state management based on subscription pattern
  */
 
 import type { ccc } from "@ckb-ccc/ccc";
@@ -11,7 +11,7 @@ import {
   DEFAULT_NATIVE_RPC_URL
 } from "../config/constants";
 
-// 状态定义
+// State definition
 export interface AppState {
   wallet: {
     signerInfos: CkbSignerInfo[];
@@ -33,7 +33,7 @@ export interface AppState {
   };
 }
 
-// 初始状态
+// Initial state
 const initialState: AppState = {
   wallet: {
     signerInfos: [],
@@ -55,10 +55,10 @@ const initialState: AppState = {
   }
 };
 
-// 订阅者类型
+// Subscriber type
 type Subscriber<T> = (value: T, prevValue: T) => void;
 
-// 存储类
+// Store class
 class Store {
   private state: AppState;
   private subscribers: Map<string, Set<Subscriber<unknown>>> = new Map();
@@ -68,17 +68,17 @@ class Store {
   }
 
   /**
-   * 获取状态（浅拷贝）
+   * Get state (shallow copy)
    */
   getState(): Readonly<AppState> {
     return this.state;
   }
 
   /**
-   * 订阅状态变化
-   * @param key 状态路径，如 "wallet.signer" 或 "fiber.channels"
-   * @param callback 回调函数
-   * @returns 取消订阅函数
+   * Subscribe to state changes
+   * @param key State path, e.g., "wallet.signer" or "fiber.channels"
+   * @param callback Callback function
+   * @returns Unsubscribe function
    */
   subscribe<K extends keyof AppState>(
     key: K,
@@ -96,7 +96,7 @@ class Store {
   }
 
   /**
-   * 嵌套订阅（用于对象属性）
+   * Nested subscription (for object properties)
    */
   subscribeNested<K extends keyof AppState, NK extends keyof AppState[K]>(
     key: K,
@@ -115,7 +115,7 @@ class Store {
   }
 
   /**
-   * 设置状态（会触发订阅）
+   * Set state (triggers subscriptions)
    */
   setState<K extends keyof AppState>(key: K, value: AppState[K]): void {
     const prevValue = this.state[key];
@@ -124,7 +124,7 @@ class Store {
   }
 
   /**
-   * 更新嵌套状态
+   * Update nested state
    */
   setNestedState<K extends keyof AppState, NK extends keyof AppState[K]>(
     key: K,
@@ -142,7 +142,7 @@ class Store {
   }
 
   /**
-   * 通知订阅者
+   * Notify subscribers
    */
   private notify<K extends keyof AppState>(
     key: K,
@@ -162,7 +162,7 @@ class Store {
   }
 
   /**
-   * 通知嵌套订阅者
+   * Notify nested subscribers
    */
   private notifyNested<K extends keyof AppState, NK extends keyof AppState[K]>(
     key: K,
@@ -185,5 +185,5 @@ class Store {
 
 }
 
-// 导出单例
+// Export singleton
 export const appStore = new Store();

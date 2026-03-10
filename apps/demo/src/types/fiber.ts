@@ -1,6 +1,6 @@
 /**
- * Fiber Host 通信类型定义
- * 供 main.ts 和 fiber-host.ts 共享
+ * Fiber Host communication type definitions
+ * Shared between main.ts and fiber-host.ts
  */
 
 import type {

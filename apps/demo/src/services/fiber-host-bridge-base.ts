@@ -1,11 +1,11 @@
 /**
- * Fiber Host Bridge 抽象基类
+ * Fiber Host Bridge Abstract Base Class
  * 
- * 定义 Bridge 的通用接口和行为，支持多种通信方式：
+ * Defines common interfaces and behaviors for Bridge, supporting multiple communication methods:
  * - BroadcastChannel
- * - postMessage (iframe/跨窗口)
+ * - postMessage (iframe/cross-window)
  * 
- * 子类需要实现具体的通信机制。
+ * Subclasses need to implement specific communication mechanisms.
  */
 
 import type {
@@ -19,19 +19,19 @@ import { FIBER_HOST_READY_TIMEOUT } from "../config/constants";
 import { createRequestId } from "../utils/format";
 
 /**
- * Bridge 配置选项
+ * Bridge configuration options
  */
 export interface FiberHostBridgeOptions {
-  /** 准备就绪超时时间（毫秒） */
+  /** Ready timeout (milliseconds) */
   readyTimeout?: number;
-  /** Channel 名称前缀 */
+  /** Channel name prefix */
   channelPrefix?: string;
 }
 
 /**
- * Fiber Host Bridge 抽象基类
+ * Fiber Host Bridge Abstract Base Class
  * 
- * 提供统一的请求-响应模式、状态管理和生命周期管理。
+ * Provides unified request-response pattern, state management, and lifecycle management.
  */
 export abstract class FiberHostBridgeBase {
   protected channelName: string;
@@ -66,7 +66,7 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 设置准备就绪超时
+   * Setup ready timeout
    */
   private setupReadyTimeout(): void {
     setTimeout(() => {
@@ -79,7 +79,7 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 设置页面生命周期监听
+   * Setup page lifecycle handlers
    */
   protected setupPageLifecycleHandlers(): void {
     const cleanup = () => {
@@ -90,7 +90,7 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 处理 ready 消息
+   * Handle ready message
    */
   protected handleReadyMessage(message: FiberHostReady): void {
     if (message.kind === "ready") {
@@ -103,7 +103,7 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 处理响应消息
+   * Handle response message
    */
   protected handleResponseMessage(message: FiberHostResponse): void {
     if (message.kind !== "response") return;
@@ -121,7 +121,7 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 等待 Fiber Host 准备就绪
+   * Wait for Fiber Host to be ready
    */
   protected async waitForReady(): Promise<void> {
     if (this.isReady) {
@@ -131,9 +131,9 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 调用 Fiber Host 方法
+   * Call Fiber Host method
    * 
-   * 子类需要实现具体的发送逻辑
+   * Subclasses need to implement specific sending logic
    */
   async call<K extends FiberHostAction>(
     action: K,
@@ -161,15 +161,15 @@ export abstract class FiberHostBridgeBase {
   }
 
   /**
-   * 发送请求（子类必须实现）
+   * Send request (must be implemented by subclasses)
    */
   protected abstract sendRequest(request: FiberHostRequest): void;
 
   /**
-   * 清理资源（子类应重写以释放特定资源）
+   * Clean up resources (subclasses should override to release specific resources)
    */
   dispose(): void {
-    // 拒绝所有待处理的请求
+    // Reject all pending requests
     for (const [requestId, pending] of this.pendingRequests) {
       pending.reject(new Error("Fiber host disposed"));
     }

@@ -1,11 +1,11 @@
 /**
- * 校验工具函数
+ * Validation utility functions
  */
 
 import { isHex32, extractPeerId } from "./format";
 
 /**
- * 验证 CKB 私钥格式
+ * Validate CKB private key format
  */
 export const validateCkbPrivateKey = (privateKey: string): string | null => {
   if (!privateKey) {
@@ -18,7 +18,7 @@ export const validateCkbPrivateKey = (privateKey: string): string | null => {
 };
 
 /**
- * 验证目标节点地址格式
+ * Validate target node address format
  */
 export const validateNativeAddress = (address: string): string | null => {
   const trimmed = address.trim();
@@ -33,7 +33,7 @@ export const validateNativeAddress = (address: string): string | null => {
 };
 
 /**
- * 验证 funding 金额是否足够
+ * Validate funding amount is sufficient
  */
 export const validateFundingAmount = (
   amount: bigint
@@ -45,7 +45,7 @@ export const validateFundingAmount = (
 };
 
 /**
- * 检查错误是否是用户取消操作
+ * Check if error is user cancellation
  */
 export const isWalletConnectCanceled = (error: unknown): boolean => {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();

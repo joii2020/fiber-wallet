@@ -1,13 +1,13 @@
 /**
- * Fiber Host - WASM Fiber 节点运行环境
+ * Fiber Host - WASM Fiber Node Runtime Environment
  * 
- * 支持两种模式：
- * 1. 弹窗模式（Popup）：独立窗口运行，通过 BroadcastChannel 通信
- * 2. Iframe 模式（DIP）：作为 iframe 嵌入，使用 postMessage + BroadcastChannel
+ * Supports two modes:
+ * 1. Popup Mode: Runs in independent window, communicates via BroadcastChannel
+ * 2. Iframe Mode (DIP): Embedded as iframe, uses postMessage + BroadcastChannel
  * 
- * 模式检测：
- * - 自动检测是否在 iframe 中运行（window.self !== window.top）
- * - DIP 模式支持跨源隔离环境（crossOriginIsolated）
+ * Mode Detection:
+ * - Automatically detects if running in iframe (window.self !== window.top)
+ * - DIP mode supports cross-origin isolation environment (crossOriginIsolated)
  */
 
 import "./styles/fiber-host.css";
@@ -31,18 +31,18 @@ if (!("Buffer" in globalThis)) {
 }
 
 /**
- * 检测是否在 iframe 中运行
+ * Detect if running in iframe
  */
 const isIframeMode = (): boolean => {
   try {
     return window.self !== window.top;
   } catch {
-    return true; // 跨域情况下也认为是 iframe
+    return true; // Also consider iframe in cross-origin cases
   }
 };
 
 /**
- * Fiber Host 主类
+ * Fiber Host main class
  */
 class FiberHost {
   private consoleUI: ConsoleUI;
@@ -58,16 +58,16 @@ class FiberHost {
   }
 
   constructor() {
-    // 检测运行模式
+    // Detect running mode
     this.iframeMode = isIframeMode();
 
-    // 初始化 UI
+    // Initialize UI
     this.consoleUI = new ConsoleUI({
       mode: this.iframeMode ? "iframe" : "popup",
       showIsolationStatus: this.iframeMode
     });
 
-    // 获取 channel name
+    // Get channel name
     const channelName = new URL(window.location.href).searchParams.get("channel");
     if (!channelName) {
       throw new Error("Missing fiber host channel");
@@ -77,36 +77,36 @@ class FiberHost {
     this.consoleUI.setChannel(channelName);
     this.consoleUI.setStatus("listening");
 
-    // 初始化 Fiber
+    // Initialize Fiber
     this.fiber = new FiberWasmManager({
       secretStorageKey: "fiber-wallet-demo:fiber-key-pair",
       databasePrefix: this.iframeMode ? "/wasm-fiber-wallet-dip" : "/wasm-fiber-wallet-demo",
       logLevel: "info"
     });
 
-    // 设置消息监听
+    // Setup message handler
     this.setupMessageHandler();
 
-    // 发送 ready 信号
+    // Send ready signal
     this.sendReady();
   }
 
   /**
-   * 发送 ready 信号
+   * Send ready signal
    */
   private sendReady(): void {
     console.log(`[fiber-host] posting ready (mode: ${this.iframeMode ? "iframe" : "popup"})`);
     const readyMessage = { kind: "ready" as const };
 
     if (this.iframeMode && window.parent) {
-      // Iframe 模式：使用 postMessage 通知父窗口
+      // Iframe mode: Use postMessage to notify parent window
       window.parent.postMessage(
         { ...readyMessage, channel: this.channelName, source: this.messageSource },
         "*"
       );
     }
 
-    // 同时尝试 BroadcastChannel（兼容弹窗模式）
+    // Also try BroadcastChannel (compatible with popup mode)
     if (!this.channel) {
       this.channel = new BroadcastChannel(this.channelName);
     }
@@ -114,13 +114,13 @@ class FiberHost {
   }
 
   /**
-   * 设置消息监听
+   * Setup message handler
    */
   private setupMessageHandler(): void {
-    // Iframe 模式：监听 postMessage
+    // Iframe mode: Listen for postMessage
     if (this.iframeMode) {
       window.addEventListener("message", (event) => {
-        // 安全检查：验证消息来源
+        // Security check: Verify message source
         if (event.origin !== window.location.origin) {
           console.warn("[fiber-host] Ignored message from:", event.origin);
           return;
@@ -133,7 +133,7 @@ class FiberHost {
       });
     }
 
-    // BroadcastChannel 监听（兼容弹窗模式）
+    // BroadcastChannel listener (compatible with popup mode)
     if (!this.channel) {
       this.channel = new BroadcastChannel(this.channelName);
     }
@@ -144,7 +144,7 @@ class FiberHost {
   }
 
   /**
-   * 处理消息
+   * Handle message
    */
   private handleMessage(message: FiberHostRequest | FiberHostControlMessage): void {
     if (!message) return;
@@ -152,7 +152,7 @@ class FiberHost {
     if (message.kind === "dispose") {
       console.log("[fiber-host] received dispose signal");
       if (this.iframeMode) {
-        // Iframe 模式：通知父窗口清理
+        // Iframe mode: Notify parent window to cleanup
         window.parent?.postMessage(
           { kind: "disposed", channel: this.channelName, source: this.messageSource },
           "*"
@@ -170,7 +170,7 @@ class FiberHost {
   }
 
   /**
-   * 处理请求
+   * Handle request
    */
   private async handleRequest(request: FiberHostRequest): Promise<void> {
     try {
@@ -198,13 +198,13 @@ class FiberHost {
   }
 
   /**
-   * 发送响应
+   * Send response
    */
   private sendResponse(response: FiberHostResponse): void {
     console.log("[fiber-host] sendResponse", response);
 
     if (this.iframeMode && window.parent) {
-      // Iframe 模式
+      // Iframe mode
       window.parent.postMessage(
         { ...response, channel: this.channelName, source: this.messageSource },
         "*"
@@ -216,7 +216,7 @@ class FiberHost {
   }
 
   /**
-   * 执行动作
+   * Execute action
    */
   private async executeAction(
     action: FiberHostAction,
@@ -245,7 +245,7 @@ class FiberHost {
   }
 
   /**
-   * 启动 Fiber 节点
+   * Start Fiber node
    */
   private async startFiberNode(nativeAddress: string): Promise<{ channels: import("@nervosnetwork/fiber-js").Channel[] }> {
     console.log("[fiber-host] startFiberNode called", {
@@ -260,7 +260,7 @@ class FiberHost {
     }
 
     if (this.isStarting) {
-      // 等待启动完成
+      // Wait for startup to complete
       while (this.isStarting) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
@@ -288,13 +288,13 @@ class FiberHost {
 }
 
 /**
- * 检查跨源隔离状态（仅在 iframe 模式下显示警告）
+ * Check cross-origin isolation status (only show warning in iframe mode)
  */
 const checkIsolation = (): void => {
-  // 检查是否支持 SharedArrayBuffer（DIP 或传统的 crossOriginIsolated 都可以）
+  // Check if SharedArrayBuffer is supported (either DIP or traditional crossOriginIsolated)
   let isIsolated = window.crossOriginIsolated;
   
-  // 如果 crossOriginIsolated 为 false，测试 SharedArrayBuffer 是否实际可用（DIP 模式）
+  // If crossOriginIsolated is false, test if SharedArrayBuffer is actually available (DIP mode)
   if (!isIsolated) {
     try {
       new SharedArrayBuffer(1);
@@ -311,7 +311,7 @@ const checkIsolation = (): void => {
     console.warn("[fiber-host] Some features (like SharedArrayBuffer) may fail.");
     console.warn("[fiber-host] ==================================================");
 
-    // 在页面显示警告
+    // Display warning on page
     const warningDiv = document.createElement("div");
     warningDiv.style.cssText = `
       position: fixed;
@@ -326,17 +326,17 @@ const checkIsolation = (): void => {
       border-bottom: 1px solid #ffc107;
     `;
     warningDiv.innerHTML = `
-      <strong>⚠️ Document-Isolation-Policy 未激活</strong><br>
-      需要 Chrome 137+ 才能启用 DIP。某些功能可能无法正常工作。
+      <strong>⚠️ Document-Isolation-Policy not activated</strong><br>
+      Chrome 137+ is required to enable DIP. Some features may not work properly.
       <a href="chrome://flags/#document-isolation-policy" target="_blank" style="color: #856404; text-decoration: underline;">
-        点击启用实验标志
+        Click to enable experimental flag
       </a>
-      或
-      <a href="./" style="color: #856404; text-decoration: underline;">切换回弹窗模式</a>
+      or
+      <a href="./" style="color: #856404; text-decoration: underline;">Switch back to popup mode</a>
     `;
     document.body.appendChild(warningDiv);
 
-    // 调整 app 位置
+    // Adjust app position
     const app = document.querySelector<HTMLDivElement>("#app");
     if (app) {
       app.style.marginTop = "60px";
@@ -344,7 +344,7 @@ const checkIsolation = (): void => {
   }
 };
 
-// 启动
+// Start
 try {
   checkIsolation();
   new FiberHost();

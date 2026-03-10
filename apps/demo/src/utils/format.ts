@@ -1,25 +1,25 @@
 /**
- * 格式化工具函数
+ * Formatting utility functions
  */
 
 import { ccc } from "@ckb-ccc/ccc";
 
 /**
- * 将 CKB 金额转换为 shannons 的 hex 字符串
+ * Convert CKB amount to shannons hex string
  */
 export const toRpcHexAmount = (amount: bigint): `0x${string}` => {
   return `0x${amount.toString(16)}`;
 };
 
 /**
- * 将 shannons 转换为 CKB 字符串
+ * Convert shannons to CKB string
  */
 export const shannonsToCkbString = (shannons: bigint): string => {
   return ccc.fixedPointToString(shannons);
 };
 
 /**
- * 缩短地址显示
+ * Truncate address display
  */
 export const truncateAddress = (address: string, start = 10, end = 6): string => {
   if (address.length <= start + end + 3) {
@@ -29,7 +29,7 @@ export const truncateAddress = (address: string, start = 10, end = 6): string =>
 };
 
 /**
- * 格式化余额显示
+ * Format balance display
  */
 export const formatBalance = (shannons: bigint | null | undefined): string => {
   if (shannons === null || shannons === undefined) {
@@ -39,21 +39,21 @@ export const formatBalance = (shannons: bigint | null | undefined): string => {
 };
 
 /**
- * 从多地址字符串中提取 peer ID
+ * Extract peer ID from multi-address string
  */
 export const extractPeerId = (address: string): string => {
   return address.trim().match(/\/p2p\/([^/]+)(?:\/|$)/)?.[1] ?? "";
 };
 
 /**
- * 生成唯一请求 ID
+ * Generate unique request ID
  */
 export const createRequestId = (prefix: string): string => {
   return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 };
 
 /**
- * 检查是否为有效的 32 字节 hex 字符串
+ * Check if it's a valid 32-byte hex string
  */
 export const isHex32 = (value: string): boolean => {
   return /^0x[0-9a-fA-F]{64}$/.test(value.trim());
