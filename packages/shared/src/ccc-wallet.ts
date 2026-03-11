@@ -1,5 +1,7 @@
 import { ccc } from "@ckb-ccc/ccc";
 import type { CkbJsonRpcTransaction } from "@nervosnetwork/fiber-js";
+import { toFiberCellDep } from "./fiber-wasm";
+import { toCccTransaction } from "./transaction";
 
 export type CkbSignerInfo = {
   id: string;
@@ -8,6 +10,11 @@ export type CkbSignerInfo = {
   walletIcon: string;
   signerName: string;
   signer: ccc.Signer;
+};
+
+export type FundingSignerSupport = {
+  supported: boolean;
+  reason?: string;
 };
 
 export type CccWalletManagerOptions = {
@@ -19,49 +26,51 @@ export type CccWalletManagerOptions = {
 const DEFAULT_APP_ICON =
   "https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/logo.svg";
 
-const normalizeDepType = (depType: string): "code" | "depGroup" => {
-  if (depType === "dep_group" || depType === "depGroup") {
-    return "depGroup";
-  }
-  return "code";
-};
+const KNOWN_LOCK_SCRIPTS = [
+  ccc.KnownScript.Secp256k1Blake160,
+  ccc.KnownScript.Secp256k1Multisig,
+  ccc.KnownScript.Secp256k1MultisigV2,
+  ccc.KnownScript.AnyoneCanPay,
+  ccc.KnownScript.JoyId,
+  ccc.KnownScript.PWLock,
+  ccc.KnownScript.OmniLock,
+  ccc.KnownScript.NostrLock
+] as const;
 
-export const toCccTransaction = (unsignedTx: CkbJsonRpcTransaction): ccc.TransactionLike => {
-  return {
-    version: unsignedTx.version,
-    cellDeps: unsignedTx.cell_deps.map((cellDep) => ({
-      depType: normalizeDepType(cellDep.dep_type),
-      outPoint: {
-        txHash: cellDep.out_point.tx_hash,
-        index: cellDep.out_point.index
-      }
-    })),
-    headerDeps: unsignedTx.header_deps,
-    inputs: unsignedTx.inputs.map((input) => ({
-      previousOutput: {
-        txHash: input.previous_output.tx_hash,
-        index: input.previous_output.index
-      },
-      since: input.since
-    })),
-    outputs: unsignedTx.outputs.map((output) => ({
-      capacity: output.capacity,
-      lock: {
-        codeHash: output.lock.code_hash,
-        hashType: output.lock.hash_type,
-        args: output.lock.args
-      },
-      type: output.type
-        ? {
-            codeHash: output.type.code_hash,
-            hashType: output.type.hash_type,
-            args: output.type.args
-          }
-        : undefined
-    })),
-    outputsData: unsignedTx.outputs_data,
-    witnesses: unsignedTx.witnesses
-  };
+const supportsLockScript = (
+  signer: ccc.Signer,
+  knownScript: ccc.KnownScript
+): FundingSignerSupport => {
+  switch (knownScript) {
+    case ccc.KnownScript.Secp256k1Blake160:
+      return signer.type === ccc.SignerType.CKB &&
+        signer.signType === ccc.SignerSignType.CkbSecp256k1
+        ? { supported: true }
+        : { supported: false, reason: "Signer does not support secp256k1 funding locks" };
+    case ccc.KnownScript.JoyId:
+      return signer.signType === ccc.SignerSignType.JoyId
+        ? { supported: true }
+        : { supported: false, reason: "Signer does not support JoyID funding locks" };
+    case ccc.KnownScript.OmniLock:
+      return signer.type === ccc.SignerType.BTC ||
+        signer.type === ccc.SignerType.Doge ||
+        signer.type === ccc.SignerType.EVM
+        ? { supported: true }
+        : {
+            supported: false,
+            reason: "OmniLock funding requires a BTC, Doge, or EVM signer"
+          };
+    case ccc.KnownScript.PWLock:
+      return signer.type === ccc.SignerType.EVM
+        ? { supported: true }
+        : { supported: false, reason: "PW Lock funding requires an EVM signer" };
+    case ccc.KnownScript.NostrLock:
+      return signer.type === ccc.SignerType.Nostr
+        ? { supported: true }
+        : { supported: false, reason: "NostrLock funding requires a Nostr signer" };
+    default:
+      return { supported: false, reason: `Unsupported funding lock script: ${knownScript}` };
+  }
 };
 
 export const withFundingTxWitnesses = (
@@ -94,7 +103,13 @@ export class CccWalletManager {
             const infos: CkbSignerInfo[] = [];
             for (const wallet of wallets) {
               for (const signerInfo of wallet.signers) {
-                if (signerInfo.signer.type !== ccc.SignerType.CKB) {
+                if (
+                  signerInfo.signer.type !== ccc.SignerType.CKB &&
+                  signerInfo.signer.type !== ccc.SignerType.BTC &&
+                  signerInfo.signer.type !== ccc.SignerType.EVM &&
+                  signerInfo.signer.type !== ccc.SignerType.Doge &&
+                  signerInfo.signer.type !== ccc.SignerType.Nostr
+                ) {
                   continue;
                 }
 
@@ -136,8 +151,72 @@ export class CccWalletManager {
     unsignedTx: CkbJsonRpcTransaction,
     signer: ccc.Signer
   ): Promise<CkbJsonRpcTransaction> {
+    const support = await this.getFundingSignerSupport(signer);
+    if (!support.supported) {
+      throw new Error(support.reason ?? "Unsupported signer for funding transaction");
+    }
+
     const cccTx = toCccTransaction(unsignedTx);
     const signedTx = await signer.signOnlyTransaction(cccTx);
     return withFundingTxWitnesses(unsignedTx, signedTx.witnesses);
+  }
+
+  async getFundingSignerSupport(signer: ccc.Signer): Promise<FundingSignerSupport> {
+    const addressObj = await signer.getRecommendedAddressObj();
+    const lockScript = ccc.Script.from(addressObj.script);
+
+    for (const knownScript of KNOWN_LOCK_SCRIPTS) {
+      const scriptInfo = await signer.client.getKnownScript(knownScript);
+      if (
+        scriptInfo.codeHash !== lockScript.codeHash ||
+        scriptInfo.hashType !== lockScript.hashType
+      ) {
+        continue;
+      }
+
+      return supportsLockScript(signer, knownScript);
+    }
+
+    return {
+      supported: false,
+      reason: "Funding address uses an unknown lock script"
+    };
+  }
+
+  async getFundingLockScriptCellDeps(signer: ccc.Signer): Promise<
+    | {
+        dep_type: "code" | "dep_group";
+        out_point: {
+          tx_hash: `0x${string}`;
+          index: `0x${string}`;
+        };
+      }[]
+    | undefined
+  > {
+    const addressObj = await signer.getRecommendedAddressObj();
+    const lockScript = ccc.Script.from(addressObj.script);
+
+    for (const knownScript of KNOWN_LOCK_SCRIPTS) {
+      const scriptInfo = await signer.client.getKnownScript(knownScript);
+      if (
+        scriptInfo.codeHash !== lockScript.codeHash ||
+        scriptInfo.hashType !== lockScript.hashType
+      ) {
+        continue;
+      }
+
+      const cellDeps = await signer.client.getCellDeps(scriptInfo.cellDeps);
+      return cellDeps.map((cellDep) =>
+        toFiberCellDep({
+          depType: cellDep.depType,
+          outPoint: {
+            txHash: cellDep.outPoint.txHash,
+            index: cellDep.outPoint.index
+          }
+        })
+      );
+    }
+
+    return undefined;
   }
 }

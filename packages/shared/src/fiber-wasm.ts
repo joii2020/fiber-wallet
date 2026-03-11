@@ -2,12 +2,19 @@ import { Fiber, randomSecretKey } from "@nervosnetwork/fiber-js";
 import type {
   CkbJsonRpcTransaction,
   Channel,
+  GetPaymentCommandParams,
+  GetInvoiceResult,
+  GetPaymentCommandResult,
+  InvoiceResult,
+  InvoiceParams,
+  NewInvoiceParams,
+  ParseInvoiceResult,
   OpenChannelWithExternalFundingParams,
   OpenChannelWithExternalFundingResult,
+  SendPaymentCommandParams,
   Script
 } from "@nervosnetwork/fiber-js";
 import { getFiberConfig } from "./fiber-config";
-import { stringify } from "@ckb-ccc/ccc";
 
 export type RelayInfo = {
   address: string;
@@ -143,7 +150,6 @@ export class FiberWasmManager {
       logLevel: this.logLevel
     });
     const config = await getFiberConfig(this.configPath);
-    console.log("[fiber-wasm] config loaded");
 
     const fiber = new Fiber();
     const fiberSecret = getOrCreateFiberSecret(this.secretStorageKey);
@@ -151,12 +157,8 @@ export class FiberWasmManager {
       secretStorageKey: this.secretStorageKey
     });
 
-    console.log("[fiber-wasm] calling fiber.start()");
     await fiber.start(config, fiberSecret, undefined, undefined, this.logLevel, this.databasePrefix);
     this.fiber = fiber;
-    console.log("[fiber-wasm] fiber.start() resolved");
-
-    console.log("[fiber-wasm] nodeInfo", `${stringify(await fiber.nodeInfo())}`);
   }
 
   async stop(): Promise<void> {
@@ -222,15 +224,40 @@ export class FiberWasmManager {
     return matched ?? null;
   }
 
+  async parseInvoice(invoice: string): Promise<ParseInvoiceResult> {
+    const trimmed = invoice.trim();
+    if (!trimmed) {
+      throw new Error("invoice id is required");
+    }
+
+    return this.assertStarted().parseInvoice({
+      invoice: trimmed,
+    });
+  }
+
+  async newInvoice(params: NewInvoiceParams): Promise<InvoiceResult> {
+    return this.assertStarted().newInvoice(params);
+  }
+
+  async getInvoice(params: InvoiceParams): Promise<GetInvoiceResult> {
+    return this.assertStarted().getInvoice(params);
+  }
+
+  async sendPayment(params: SendPaymentCommandParams): Promise<GetPaymentCommandResult> {
+    return this.assertStarted().sendPayment(params);
+  }
+
+  async getPayment(params: GetPaymentCommandParams): Promise<GetPaymentCommandResult> {
+    return this.assertStarted().getPayment(params);
+  }
+
   async openChannelWithExternalFunding(
     params: OpenChannelWithExternalFundingParams
   ): Promise<OpenChannelWithExternalFundingResult> {
-    // fiber-js now returns the final negotiated unsigned funding tx.
     return this.assertStarted().openChannelWithExternalFunding(params);
   }
 
   async submitSignedFundingTx(channelId: string, signedTx: CkbJsonRpcTransaction) {
-    // Only witnesses/signatures should differ from the previously returned funding tx.
     return this.assertStarted().submitSignedFundingTx({
       channel_id: channelId as `0x${string}`,
       signed_funding_tx: signedTx

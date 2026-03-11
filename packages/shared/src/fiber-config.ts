@@ -1,13 +1,4 @@
-const isHex32 = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value.trim());
-
-const bytesToHex = (bytes: Uint8Array): `0x${string}` => {
-  const hex = Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `0x${hex}`;
-};
-
-let cachedFiberConfigs = new Map<string, Promise<string>>();
+const cachedFiberConfigs = new Map<string, Promise<string>>();
 
 export const DEMO_FIBER_CONFIG_PATH = "/demo/fiber-config-testnet.yml";
 

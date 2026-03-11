@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 /**
  * Original solution: COOP/COEP header configuration
@@ -28,25 +29,19 @@ const DIP_HEADERS = {
   "Document-Isolation-Policy": DIP_VALUE
 } as const;
 
+// URL patterns for isolation policies
+const COOP_COEP_URLS = ["/demo/fiber-host.html"] as const;
+const DIP_URLS = ["/", "/index.html", "/demo/", "/demo/index.html", "/demo/fiber-host-dip.html"] as const;
+const CORP_URLS = ["/", "/index.html", "/demo/", "/demo/index.html"] as const;
+
+const matchesUrl = (url: string, patterns: readonly string[]): boolean =>
+  patterns.some(pattern => url === pattern || url.startsWith(`${pattern}?`));
+
 // Check if COOP/COEP page (popup mode)
-const isCoopCoepPage = (url: string): boolean => {
-  return (
-    url === "/demo/fiber-host.html" ||
-    url.startsWith("/demo/fiber-host.html?")
-  );
-};
+const isCoopCoepPage = (url: string): boolean => matchesUrl(url, COOP_COEP_URLS);
 
 // Check if DIP page (iframe mode)
-const isDipPage = (url: string): boolean => {
-  return (
-    url === "/demo/" ||
-    url.startsWith("/demo/?") ||
-    url === "/demo/index.html" ||
-    url.startsWith("/demo/index.html?") ||
-    url === "/demo/fiber-host-dip.html" ||
-    url.startsWith("/demo/fiber-host-dip.html?")
-  );
-};
+const isDipPage = (url: string): boolean => matchesUrl(url, DIP_URLS);
 
 const patchFiberJsInitSync = () => ({
   name: "patch-fiber-js-initsync",
@@ -71,8 +66,63 @@ const patchFiberJsInitSync = () => ({
   }
 });
 
+// Demo path redirect middleware
+const demoRedirectMiddleware = (req: any, res: any, next: any) => {
+  const url = req.url ?? "";
+  if (url === "/demo" || url.startsWith("/demo?")) {
+    res.statusCode = 302;
+    res.setHeader("Location", "/demo/");
+    res.end();
+    return;
+  }
+  next();
+};
+
+// Isolation headers middleware factory
+const createIsolationHeadersMiddleware = (options: { log: boolean }) => 
+  (req: any, res: any, next: any) => {
+    const url = req.url ?? "";
+    
+    if (isCoopCoepPage(url)) {
+      Object.entries(COOP_COEP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
+      if (options.log) console.log(`[COOP/COEP] Applied to: ${url}`);
+    }
+    
+    if (isDipPage(url)) {
+      Object.entries(DIP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
+      if (options.log) console.log(`[DIP] Applied to: ${url}`);
+    }
+
+    if (matchesUrl(url, CORP_URLS)) {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    }
+    
+    next();
+  };
+
+const demoPathRedirectPlugin = {
+  name: "demo-path-redirect",
+  configureServer(server: any) {
+    server.middlewares.use(demoRedirectMiddleware);
+  },
+  configurePreviewServer(server: any) {
+    server.middlewares.use(demoRedirectMiddleware);
+  }
+};
+
+const isolationHeadersPlugin = {
+  name: "isolation-headers",
+  configureServer(server: any) {
+    server.middlewares.use(createIsolationHeadersMiddleware({ log: true }));
+  },
+  configurePreviewServer(server: any) {
+    server.middlewares.use(createIsolationHeadersMiddleware({ log: false }));
+  }
+};
+
 export default defineConfig({
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: {
       buffer: "buffer/"
     }
@@ -81,102 +131,14 @@ export default defineConfig({
     global: "globalThis"
   },
   optimizeDeps: {
-    include: ["buffer"],
+    include: ["buffer", "bech32", "@ckb-ccc/ccc", "@ckb-ccc/connector-react"],
     exclude: ["@nervosnetwork/fiber-js"]
   },
   plugins: [
+    react(),
     patchFiberJsInitSync(),
-    {
-      name: "demo-path-redirect",
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          const url = req.url ?? "";
-          if (url === "/demo" || url.startsWith("/demo?")) {
-            res.statusCode = 302;
-            res.setHeader("Location", "/demo/");
-            res.end();
-            return;
-          }
-          next();
-        });
-      },
-      configurePreviewServer(server) {
-        server.middlewares.use((req, res, next) => {
-          const url = req.url ?? "";
-          if (url === "/demo" || url.startsWith("/demo?")) {
-            res.statusCode = 302;
-            res.setHeader("Location", "/demo/");
-            res.end();
-            return;
-          }
-          next();
-        });
-      }
-    },
-    {
-      name: "isolation-headers",
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          const url = req.url ?? "";
-          
-          // COOP/COEP solution (popup mode)
-          if (isCoopCoepPage(url)) {
-            for (const [key, value] of Object.entries(COOP_COEP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-            console.log(`[COOP/COEP] Applied to: ${url}`);
-          }
-          
-          // DIP solution (iframe mode)
-          if (isDipPage(url)) {
-            for (const [key, value] of Object.entries(DIP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-            console.log(`[DIP] Applied to: ${url}`);
-          }
-
-          // Add CORP headers for DIP parent page to allow loading by DIP iframe
-          if (
-            url === "/demo/" ||
-            url.startsWith("/demo/?") ||
-            url === "/demo/index.html" ||
-            url.startsWith("/demo/index.html?")
-          ) {
-            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-          }
-          
-          next();
-        });
-      },
-      configurePreviewServer(server) {
-        server.middlewares.use((req, res, next) => {
-          const url = req.url ?? "";
-          
-          if (isCoopCoepPage(url)) {
-            for (const [key, value] of Object.entries(COOP_COEP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-          }
-          
-          if (isDipPage(url)) {
-            for (const [key, value] of Object.entries(DIP_HEADERS)) {
-              res.setHeader(key, value);
-            }
-          }
-
-          if (
-            url === "/demo/" ||
-            url.startsWith("/demo/?") ||
-            url === "/demo/index.html" ||
-            url.startsWith("/demo/index.html?")
-          ) {
-            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-          }
-
-          next();
-        });
-      }
-    }
+    demoPathRedirectPlugin,
+    isolationHeadersPlugin
   ],
   server: {
     host: true,
