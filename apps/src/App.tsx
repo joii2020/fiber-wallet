@@ -4,7 +4,7 @@ import { ccc } from "@ckb-ccc/ccc";
 import type { Channel as FiberChannel, OpenChannelWithExternalFundingParams } from "@nervosnetwork/fiber-js";
 import { CccWalletManager, toFiberScript, type CkbSignerInfo } from "@fiber-wallet/shared";
 import { WalletButton } from "./components/WalletButton";
-import { fiber, fiberReady } from "./services/fiber-wasm";
+import { FiberWasmRuntimeError, fiber, fiberReady } from "./services/fiber-wasm";
 import { truncateAddress } from "./utils/stringUtils";
 
 type FiberStatus = "loading" | "running" | "error";
@@ -301,9 +301,18 @@ export function App() {
           setFiberStatus("running");
         }
       } catch (error) {
-        console.error("[App] Failed to initialize fiber:", error);
+        if (error instanceof FiberWasmRuntimeError) {
+          console.warn("[App] Fiber runtime is unavailable:", error.message);
+        } else {
+          console.error("[App] Failed to initialize fiber:", error);
+        }
         if (!cancelled) {
           setFiberStatus("error");
+          setActivity(
+            error instanceof FiberWasmRuntimeError
+              ? "Fiber requires SharedArrayBuffer. Redeploy with Vercel isolation headers and reload."
+              : `Failed to initialize fiber: ${getErrorMessage(error)}`
+          );
         }
       }
     }

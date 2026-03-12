@@ -2,11 +2,16 @@
   "name": "fiber-wallet",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.8.1",
+  "packageManager": "pnpm@10.19.0",
   "scripts": {
     "dev": "pnpm --filter @fiber-wallet/app dev",
     "build": "pnpm --filter @fiber-wallet/app build",
     "preview": "pnpm --filter @fiber-wallet/app preview"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "dependencies": {
     "@ckb-ccc/connector-react": "^1.0.34"

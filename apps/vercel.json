@@ -1,0 +1,87 @@
+{
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/demo",
+      "destination": "/demo/",
+      "permanent": false
+    }
+  ],
+  "headers": [
+    {
+      "source": "/demo/fiber-host.html",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Document-Isolation-Policy",
+          "value": "isolate-and-credentialless"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Document-Isolation-Policy",
+          "value": "isolate-and-credentialless"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/demo/",
+      "headers": [
+        {
+          "key": "Document-Isolation-Policy",
+          "value": "isolate-and-credentialless"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/demo/index.html",
+      "headers": [
+        {
+          "key": "Document-Isolation-Policy",
+          "value": "isolate-and-credentialless"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/demo/fiber-host-dip.html",
+      "headers": [
+        {
+          "key": "Document-Isolation-Policy",
+          "value": "isolate-and-credentialless"
+        }
+      ]
+    }
+  ]
+}
