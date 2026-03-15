@@ -270,9 +270,11 @@ export class FiberPanel extends BaseComponent {
         throw new Error("Target node address must include /p2p/<peer-id>");
       }
 
+      const { connectedPeerPubkey } = await this.bridge.call("startFiberNode", { nativeAddress });
+
       // Build parameters
       const openChannelParams = {
-        peer_id: peerId,
+        pubkey: connectedPeerPubkey,
         funding_amount: toRpcHexAmount(fundingAmount),
         public: true,
         shutdown_script: lockScript,

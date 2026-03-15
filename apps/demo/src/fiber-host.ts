@@ -247,7 +247,9 @@ class FiberHost {
   /**
    * Start Fiber node
    */
-  private async startFiberNode(nativeAddress: string): Promise<{ channels: import("@nervosnetwork/fiber-js").Channel[] }> {
+  private async startFiberNode(
+    nativeAddress: string
+  ): Promise<{ channels: import("@nervosnetwork/fiber-js").Channel[]; connectedPeerPubkey: string }> {
     console.log("[fiber-host] startFiberNode called", {
       nativeAddress,
       isStarted: this.isStarted,
@@ -255,8 +257,11 @@ class FiberHost {
       crossOriginIsolated: window.crossOriginIsolated
     });
 
+    const relayInfo = this.fiber.parseRelayInfo(nativeAddress);
+
     if (this.isStarted) {
-      return { channels: await this.fiber.listChannels() };
+      const connectedPeerPubkey = await this.fiber.connectPeer(relayInfo);
+      return { channels: await this.fiber.listChannels(), connectedPeerPubkey };
     }
 
     if (this.isStarting) {
@@ -264,7 +269,8 @@ class FiberHost {
       while (this.isStarting) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      return { channels: await this.fiber.listChannels() };
+      const connectedPeerPubkey = await this.fiber.connectPeer(relayInfo);
+      return { channels: await this.fiber.listChannels(), connectedPeerPubkey };
     }
 
     this.isStarting = true;
@@ -274,13 +280,12 @@ class FiberHost {
       await this.fiber.start();
       console.log(`[fiber-host] wasm fiber started, took ${Date.now() - startTime}ms`);
 
-      const relayInfo = this.fiber.parseRelayInfo(nativeAddress);
       console.log("[fiber-host] connecting peer", relayInfo);
-      await this.fiber.connectPeer(relayInfo);
-      console.log("[fiber-host] peer connected", relayInfo);
+      const connectedPeerPubkey = await this.fiber.connectPeer(relayInfo);
+      console.log("[fiber-host] peer connected", { ...relayInfo, connectedPeerPubkey });
 
       this.isStarted = true;
-      return { channels: await this.fiber.listChannels() };
+      return { channels: await this.fiber.listChannels(), connectedPeerPubkey };
     } finally {
       this.isStarting = false;
     }

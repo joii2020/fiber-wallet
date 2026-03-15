@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ccc as cccConnector } from "@ckb-ccc/connector-react";
+import { ccc as cccConnector, stringify } from "@ckb-ccc/connector-react";
 import { ccc } from "@ckb-ccc/ccc";
-import type { Channel as FiberChannel, OpenChannelWithExternalFundingParams } from "@nervosnetwork/fiber-js";
-import { CccWalletManager, toFiberScript, type CkbSignerInfo } from "@fiber-wallet/shared";
+import type { Channel as FiberChannel } from "@nervosnetwork/fiber-js";
+import {
+  CccWalletManager,
+  toFiberScript,
+  type CkbSignerInfo,
+  type OpenChannelWithExternalFundingCompatParams
+} from "@fiber-wallet/shared";
 import { WalletButton } from "./components/WalletButton";
 import { FiberWasmRuntimeError, fiber, fiberReady } from "./services/fiber-wasm";
 import { truncateAddress } from "./utils/stringUtils";
@@ -43,7 +48,7 @@ const RECEIVE_INVOICE_STATUS_POLL_INTERVAL_MS = 500;
 const DEFAULT_RECEIVE_AMOUNT_SHANNONS = 1n * SHANNONS_PER_CKB;
 const MIN_RECEIVE_FINAL_EXPIRY_DELTA = "0x927c00";
 const DEFAULT_CHANNEL_PEER_ADDRESS =
-  "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmVtWP2GFauRK31YFPQT1yW1KmyytA3j7PHwk9YjeE9hU9";
+  "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmTPYRMATN5nk82BFgMFkPMeG1z3U2w9gK16RomvyYxeyP";
 const PAYMENT_HASH_HEX_REGEX = /^0x[0-9a-fA-F]{64}$/;
 const PAYMENT_HASH_HEX_SEARCH_REGEX = /0x[0-9a-fA-F]{64}/;
 const INVOICE_SEARCH_REGEX = /(fib[bdt][a-z0-9]*1[023456789acdefghjklmnpqrstuvwxyz]+)/i;
@@ -670,7 +675,7 @@ export function App() {
 
         setActivity(`Connecting peer ${trimmed}...`);
         const relayInfo = fiber.parseRelayInfo(trimmed);
-        await fiber.connectPeer(relayInfo);
+        const peerPubkey = await fiber.connectPeer(relayInfo);
 
         const fundingAddressObj = await resolved.signer.getRecommendedAddressObj();
         const fundingScriptCapacity = await resolved.signer.client.getCellsCapacity({
@@ -700,12 +705,12 @@ export function App() {
           resolved.signer
         );
 
-        const openChannelParams: OpenChannelWithExternalFundingParams & {
+        const openChannelParams: OpenChannelWithExternalFundingCompatParams & {
           funding_lock_script_cell_deps?: Awaited<
             ReturnType<typeof walletManager.getFundingLockScriptCellDeps>
           >;
         } = {
-          peer_id: relayInfo.peerId,
+          pubkey: peerPubkey,
           funding_amount: toRpcHexAmount(fundingAmount),
           public: true,
           shutdown_script: toFiberScript(fundingAddressObj.script),
@@ -720,6 +725,7 @@ export function App() {
         setActivity(
           `Opening external funding channel with ${resolved.label} (${truncateAddress(resolved.address)})...`
         );
+        console.log(`openchannel param: ${stringify(openChannelParams)}`);
         const result = await fiber.openChannelWithExternalFunding(openChannelParams);
 
         setActivity(`Signing funding transaction with ${resolved.label}...`);

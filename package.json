@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.19.0",
+  "workspaces": [
+    "apps",
+    "packages/shared"
+  ],
   "scripts": {
-    "dev": "pnpm --filter @fiber-wallet/app dev",
-    "build": "pnpm --filter @fiber-wallet/app build",
-    "preview": "pnpm --filter @fiber-wallet/app preview"
+    "dev": "npm run dev --workspace @fiber-wallet/app",
+    "build": "npm run build --workspace @fiber-wallet/app",
+    "preview": "npm run preview --workspace @fiber-wallet/app"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

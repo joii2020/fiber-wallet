@@ -9,16 +9,56 @@ import type {
   InvoiceParams,
   NewInvoiceParams,
   ParseInvoiceResult,
-  OpenChannelWithExternalFundingParams,
-  OpenChannelWithExternalFundingResult,
   SendPaymentCommandParams,
   Script
 } from "@nervosnetwork/fiber-js";
 import { getFiberConfig } from "./fiber-config";
+import { stringify } from "@ckb-ccc/connector-react";
 
 export type RelayInfo = {
   address: string;
   peerId: string;
+};
+
+type CompatPeerInfo = {
+  address?: string;
+  peer_id?: string;
+  pubkey?: string;
+};
+
+export type OpenChannelWithExternalFundingCompatParams = {
+  pubkey: string;
+  funding_amount: `0x${string}`;
+  public?: boolean;
+  funding_udt_type_script?: Script;
+  shutdown_script: Script;
+  funding_lock_script: Script;
+  funding_lock_script_cell_deps?: Array<{
+    dep_type: "code" | "dep_group";
+    out_point: {
+      tx_hash: `0x${string}`;
+      index: `0x${string}`;
+    };
+  }>;
+  commitment_delay_epoch?: `0x${string}`;
+  commitment_fee_rate?: `0x${string}`;
+  funding_fee_rate?: `0x${string}`;
+  tlc_expiry_delta?: `0x${string}`;
+  tlc_min_value?: `0x${string}`;
+  tlc_fee_proportional_millionths?: `0x${string}`;
+  max_tlc_value_in_flight?: `0x${string}`;
+  max_tlc_number_in_flight?: `0x${string}`;
+};
+
+export type OpenChannelWithExternalFundingCompatResult = {
+  channel_id: `0x${string}`;
+  unsigned_funding_tx: CkbJsonRpcTransaction;
+};
+
+type FiberCompat = Fiber & {
+  openChannelWithExternalFunding(
+    params: OpenChannelWithExternalFundingCompatParams
+  ): Promise<OpenChannelWithExternalFundingCompatResult>;
 };
 
 const CKB_SHANNONS = 100000000n;
@@ -180,7 +220,7 @@ export class FiberWasmManager {
     };
   }
 
-  async connectPeer(info: RelayInfo): Promise<void> {
+  async connectPeer(info: RelayInfo): Promise<string> {
     const fiber = this.assertStarted();
 
     console.log("[fiber-wasm] connectPeer begin", info);
@@ -189,17 +229,25 @@ export class FiberWasmManager {
 
     for (let i = 0; i < 20; i += 1) {
       const peers = await fiber.listPeers();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const found = peers.peers.some((peer: any) => peer.peer_id === info.peerId);
+      const found = (peers.peers as CompatPeerInfo[]).find((peer) => {
+        if (peer.peer_id) {
+          return peer.peer_id === info.peerId;
+        }
+        return peer.address === info.address;
+      });
       console.log("[fiber-wasm] connectPeer poll", {
         attempt: i + 1,
         targetPeerId: info.peerId,
         peerCount: peers.peers.length,
-        found
+        found: Boolean(found)
       });
       if (found) {
+        const pubkey = found.pubkey;
+        if (!pubkey) {
+          throw new Error("Connected peer pubkey not found");
+        }
         console.log("[fiber-wasm] connectPeer success", info);
-        return;
+        return pubkey;
       }
       await sleep(400);
     }
@@ -252,9 +300,23 @@ export class FiberWasmManager {
   }
 
   async openChannelWithExternalFunding(
-    params: OpenChannelWithExternalFundingParams
-  ): Promise<OpenChannelWithExternalFundingResult> {
-    return this.assertStarted().openChannelWithExternalFunding(params);
+    params: OpenChannelWithExternalFundingCompatParams
+  ): Promise<OpenChannelWithExternalFundingCompatResult> {
+    const result = await (this.assertStarted() as FiberCompat).openChannelWithExternalFunding(params);
+    console.log(`openChannelWithExternalFunding Res: ${stringify(result)}`);
+    const normalized = result as {
+      channel_id?: `0x${string}`;
+      temporary_channel_id?: `0x${string}`;
+      unsigned_funding_tx: CkbJsonRpcTransaction;
+    };
+    const channelId = normalized.channel_id ?? normalized.temporary_channel_id;
+    if (!channelId) {
+      throw new Error("Missing channel id in openChannelWithExternalFunding result");
+    }
+    return {
+      channel_id: channelId,
+      unsigned_funding_tx: normalized.unsigned_funding_tx
+    };
   }
 
   async submitSignedFundingTx(channelId: string, signedTx: CkbJsonRpcTransaction) {

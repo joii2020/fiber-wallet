@@ -6,9 +6,11 @@
 import type {
   CkbJsonRpcTransaction,
   Channel,
-  OpenChannelWithExternalFundingParams,
-  OpenChannelWithExternalFundingResult
 } from "@nervosnetwork/fiber-js";
+import type {
+  OpenChannelWithExternalFundingCompatParams,
+  OpenChannelWithExternalFundingCompatResult
+} from "@fiber-wallet/shared";
 
 export type FiberHostAction =
   | "startFiberNode"
@@ -24,7 +26,7 @@ export type FiberHostControlMessage = {
 export type FiberHostRequestMap = {
   startFiberNode: {
     payload: { nativeAddress: string };
-    result: { channels: Channel[] };
+    result: { channels: Channel[]; connectedPeerPubkey: string };
   };
   listChannels: {
     payload: undefined;
@@ -35,8 +37,8 @@ export type FiberHostRequestMap = {
     result: { ok: true };
   };
   openChannelWithExternalFunding: {
-    payload: OpenChannelWithExternalFundingParams;
-    result: OpenChannelWithExternalFundingResult;
+    payload: OpenChannelWithExternalFundingCompatParams;
+    result: OpenChannelWithExternalFundingCompatResult;
   };
   submitSignedFundingTx: {
     payload: {

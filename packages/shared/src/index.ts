@@ -4,6 +4,8 @@ export {
   ckbToShannonsHex,
   toFiberScript,
   type RelayInfo,
+  type OpenChannelWithExternalFundingCompatParams,
+  type OpenChannelWithExternalFundingCompatResult,
   type FiberWasmManagerOptions
 } from "./fiber-wasm";
 
