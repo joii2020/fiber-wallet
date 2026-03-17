@@ -30,15 +30,10 @@ const DIP_HEADERS = {
 } as const;
 
 // URL patterns for isolation policies
-const COOP_COEP_URLS = ["/demo/fiber-host.html"] as const;
-const DIP_URLS = ["/", "/index.html", "/demo/", "/demo/index.html", "/demo/fiber-host-dip.html"] as const;
-const CORP_URLS = ["/", "/index.html", "/demo/", "/demo/index.html"] as const;
+const DIP_URLS = ["/", "/index.html"] as const;
 
 const matchesUrl = (url: string, patterns: readonly string[]): boolean =>
   patterns.some(pattern => url === pattern || url.startsWith(`${pattern}?`));
-
-// Check if COOP/COEP page (popup mode)
-const isCoopCoepPage = (url: string): boolean => matchesUrl(url, COOP_COEP_URLS);
 
 // Check if DIP page (iframe mode)
 const isDipPage = (url: string): boolean => matchesUrl(url, DIP_URLS);
@@ -66,49 +61,18 @@ const patchFiberJsInitSync = () => ({
   }
 });
 
-// Demo path redirect middleware
-const demoRedirectMiddleware = (req: any, res: any, next: any) => {
-  const url = req.url ?? "";
-  if (url === "/demo" || url.startsWith("/demo?")) {
-    res.statusCode = 302;
-    res.setHeader("Location", "/demo/");
-    res.end();
-    return;
-  }
-  next();
-};
-
 // Isolation headers middleware factory
 const createIsolationHeadersMiddleware = (options: { log: boolean }) => 
   (req: any, res: any, next: any) => {
     const url = req.url ?? "";
-    
-    if (isCoopCoepPage(url)) {
-      Object.entries(COOP_COEP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
-      if (options.log) console.log(`[COOP/COEP] Applied to: ${url}`);
-    }
     
     if (isDipPage(url)) {
       Object.entries(DIP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
       if (options.log) console.log(`[DIP] Applied to: ${url}`);
     }
 
-    if (matchesUrl(url, CORP_URLS)) {
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    }
-    
     next();
   };
-
-const demoPathRedirectPlugin = {
-  name: "demo-path-redirect",
-  configureServer(server: any) {
-    server.middlewares.use(demoRedirectMiddleware);
-  },
-  configurePreviewServer(server: any) {
-    server.middlewares.use(demoRedirectMiddleware);
-  }
-};
 
 const isolationHeadersPlugin = {
   name: "isolation-headers",
@@ -137,7 +101,6 @@ export default defineConfig({
   plugins: [
     react(),
     patchFiberJsInitSync(),
-    demoPathRedirectPlugin,
     isolationHeadersPlugin
   ],
   server: {
@@ -153,10 +116,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        wallet: resolve(__dirname, "index.html"),
-        demo: resolve(__dirname, "demo/index.html"),
-        fiberHost: resolve(__dirname, "demo/fiber-host.html"),
-        fiberHostDip: resolve(__dirname, "demo/fiber-host-dip.html")
+        wallet: resolve(__dirname, "index.html")
       }
     }
   }

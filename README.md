@@ -1,9 +1,6 @@
 # fiber-wallet
 
-This repository now provides two pages through a single development/deployment:
-
-- `/`: Fiber Wallet page (`apps/src`)
-- `/demo/`: Fiber WASM + CCC demo page (`apps/demo/src`)
+Fiber Wallet - A CKB Fiber Network wallet application.
 
 ## Local Development
 
@@ -12,10 +9,7 @@ pnpm install
 pnpm dev
 ```
 
-Default access:
-
-- http://localhost:5173/
-- http://localhost:5173/demo/
+Default access: http://localhost:5173/
 
 ## External Funding Semantics
 
