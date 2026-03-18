@@ -7,10 +7,11 @@ import {
   toFiberScript,
   type CkbSignerInfo,
   type OpenChannelWithExternalFundingCompatParams
-} from "@fiber-wallet/shared";
+} from "./shared";
 import { WalletButton } from "./components/WalletButton";
 import { FiberWasmRuntimeError, fiber, fiberReady } from "./services/fiber-wasm";
 import { truncateAddress } from "./utils/stringUtils";
+import { DEFAULT_CHANNEL_PEER_ADDRESS } from "./config";
 
 type FiberStatus = "loading" | "running" | "error";
 type ModalKey = "pay" | "receive" | "channels" | null;
@@ -47,8 +48,6 @@ const PAYMENT_STATUS_POLL_ATTEMPTS = 10;
 const RECEIVE_INVOICE_STATUS_POLL_INTERVAL_MS = 500;
 const DEFAULT_RECEIVE_AMOUNT_SHANNONS = 1n * SHANNONS_PER_CKB;
 const MIN_RECEIVE_FINAL_EXPIRY_DELTA = "0x927c00";
-const DEFAULT_CHANNEL_PEER_ADDRESS =
-  "/ip4/127.0.0.1/tcp/8248/ws/p2p/QmTPYRMATN5nk82BFgMFkPMeG1z3U2w9gK16RomvyYxeyP";
 const PAYMENT_HASH_HEX_REGEX = /^0x[0-9a-fA-F]{64}$/;
 const PAYMENT_HASH_HEX_SEARCH_REGEX = /0x[0-9a-fA-F]{64}/;
 const INVOICE_SEARCH_REGEX = /(fib[bdt][a-z0-9]*1[023456789acdefghjklmnpqrstuvwxyz]+)/i;

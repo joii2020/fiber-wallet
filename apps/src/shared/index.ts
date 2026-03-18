@@ -10,7 +10,7 @@ export {
 } from "./fiber-wasm";
 
 export {
-  DEMO_FIBER_CONFIG_PATH,
+  DEFAULT_FIBER_CONFIG_PATH,
   getFiberConfig
 } from "./fiber-config";
 

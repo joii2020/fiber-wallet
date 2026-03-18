@@ -3,6 +3,47 @@ import type { CkbJsonRpcTransaction } from "@nervosnetwork/fiber-js";
 import { toFiberCellDep } from "./fiber-wasm";
 import { toCccTransaction } from "./transaction";
 
+/**
+ * Prepare witness for OmniLock signing by adjusting the placeholder format.
+ * Fiber generates witnesses with 174-byte placeholders for secp256k1 signatures,
+ * but OmniLock expects 85-byte placeholders.
+ */
+const prepareOmniLockWitness = (
+  tx: ccc.Transaction,
+  lockScript: ccc.Script
+): void => {
+  // OmniLock requires 85 bytes for the lock field:
+  // - 4 bytes: identity auth flags
+  // - 4 bytes: identity source
+  // - 4 bytes: identity args len
+  // - 4 bytes: signature len offset
+  // - 4 bytes: signature len
+  // - 65 bytes: signature (max size for BTC)
+  const OMNI_LOCK_WITNESS_LOCK_LEN = 85;
+
+  for (let i = 0; i < tx.inputs.length; i++) {
+    const input = tx.inputs[i];
+    if (!input.cellOutput) {
+      continue;
+    }
+    if (!lockScript.eq(input.cellOutput.lock)) {
+      continue;
+    }
+
+    // Get or create witness args at this position
+    let witnessArgs = tx.getWitnessArgsAt(i);
+    if (!witnessArgs) {
+      witnessArgs = ccc.WitnessArgs.from({});
+    }
+
+    // Set lock to OmniLock placeholder size (85 bytes of zeros)
+    witnessArgs.lock = ccc.hexFrom(
+      new Uint8Array(OMNI_LOCK_WITNESS_LOCK_LEN).fill(0)
+    );
+    tx.setWitnessArgsAt(i, witnessArgs);
+  }
+};
+
 export type CkbSignerInfo = {
   id: string;
   label: string;
@@ -156,7 +197,31 @@ export class CccWalletManager {
       throw new Error(support.reason ?? "Unsupported signer for funding transaction");
     }
 
-    const cccTx = toCccTransaction(unsignedTx);
+    const cccTxLike = toCccTransaction(unsignedTx);
+    const cccTx = ccc.Transaction.from(cccTxLike);
+    const addressObj = await signer.getRecommendedAddressObj();
+    const lockScript = ccc.Script.from(addressObj.script);
+
+    // Check if this is an OmniLock signer (BTC, DOGE, or EVM)
+    const omniLockScriptInfo = await signer.client.getKnownScript(ccc.KnownScript.OmniLock);
+    const isOmniLock =
+      signer.type === ccc.SignerType.BTC ||
+      signer.type === ccc.SignerType.Doge ||
+      (signer.type === ccc.SignerType.EVM &&
+        omniLockScriptInfo.codeHash === lockScript.codeHash);
+
+    if (isOmniLock) {
+      // For OmniLock signers, we need to adjust the witness placeholder format
+      // because Fiber generates placeholders for secp256k1 (174 bytes),
+      // but OmniLock expects a different format (85 bytes).
+      await Promise.all(
+        cccTx.inputs.map(async (input) => {
+          await input.completeExtraInfos(this.client);
+        })
+      );
+      prepareOmniLockWitness(cccTx, lockScript);
+    }
+
     const signedTx = await signer.signOnlyTransaction(cccTx);
     return withFundingTxWitnesses(unsignedTx, signedTx.witnesses);
   }

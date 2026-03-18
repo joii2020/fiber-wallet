@@ -1,4 +1,4 @@
-import { FiberWasmManager } from "@fiber-wallet/shared";
+import { FiberWasmManager } from "../shared";
 import { Buffer } from "buffer/";
 
 export class FiberWasmRuntimeError extends Error {
@@ -36,6 +36,7 @@ const assertFiberRuntimeReady = (): void => {
 
 // Initialize WASM fiber on page load
 export const fiber = new FiberWasmManager({
+  configPath: "/fiber-config-testnet.yml",
   secretStorageKey: "fiber-wallet-app:fiber-key-pair",
   databasePrefix: "/wasm-fiber-wallet-app",
   logLevel: "info"

@@ -1,8 +1,8 @@
 const cachedFiberConfigs = new Map<string, Promise<string>>();
 
-export const DEMO_FIBER_CONFIG_PATH = "/demo/fiber-config-testnet.yml";
+export const DEFAULT_FIBER_CONFIG_PATH = "/fiber-config-testnet.yml";
 
-export const getFiberConfig = (configPath: string = DEMO_FIBER_CONFIG_PATH): Promise<string> => {
+export const getFiberConfig = (configPath: string = DEFAULT_FIBER_CONFIG_PATH): Promise<string> => {
   const existing = cachedFiberConfigs.get(configPath);
   if (existing) {
     return existing;

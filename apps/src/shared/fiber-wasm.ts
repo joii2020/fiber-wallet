@@ -173,7 +173,7 @@ export class FiberWasmManager {
   private readonly logLevel: "trace" | "debug" | "info" | "error";
 
   constructor(options: FiberWasmManagerOptions = {}) {
-    this.configPath = options.configPath ?? "/demo/fiber-config-testnet.yml";
+    this.configPath = options.configPath ?? "/fiber-config-testnet.yml";
     this.secretStorageKey = options.secretStorageKey ?? "fiber-wallet:fiber-secret";
     this.databasePrefix = options.databasePrefix ?? "/wasm-fiber-wallet";
     this.logLevel = options.logLevel ?? "info";
