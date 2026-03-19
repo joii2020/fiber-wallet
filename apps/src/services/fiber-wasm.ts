@@ -1,5 +1,10 @@
 import { FiberWasmManager } from "../shared";
 import { Buffer } from "buffer/";
+import {
+  DEFAULT_FIBER_CONFIG_PATH,
+  DEFAULT_FIBER_DATABASE_PREFIX,
+  DEFAULT_FIBER_SECRET_STORAGE_KEY
+} from "../config";
 
 export class FiberWasmRuntimeError extends Error {
   constructor(message: string) {
@@ -36,9 +41,9 @@ const assertFiberRuntimeReady = (): void => {
 
 // Initialize WASM fiber on page load
 export const fiber = new FiberWasmManager({
-  configPath: "/fiber-config-testnet.yml",
-  secretStorageKey: "fiber-wallet-app:fiber-key-pair",
-  databasePrefix: "/wasm-fiber-wallet-app",
+  configPath: DEFAULT_FIBER_CONFIG_PATH,
+  secretStorageKey: DEFAULT_FIBER_SECRET_STORAGE_KEY,
+  databasePrefix: DEFAULT_FIBER_DATABASE_PREFIX,
   logLevel: "info"
 });
 const startWasmFiber = async (): Promise<void> => {

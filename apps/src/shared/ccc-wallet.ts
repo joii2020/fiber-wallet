@@ -117,11 +117,24 @@ const supportsLockScript = (
 export const withFundingTxWitnesses = (
   fundingTx: CkbJsonRpcTransaction,
   witnesses: string[]
-): CkbJsonRpcTransaction => ({
-  // External funding submit only accepts signature/witness updates.
-  ...fundingTx,
-  witnesses: witnesses.map((witness) => witness as `0x${string}`)
-});
+): CkbJsonRpcTransaction => {
+  const tx = fundingTx as CkbJsonRpcTransaction & {
+    cellDeps?: CkbJsonRpcTransaction["cell_deps"];
+    headerDeps?: CkbJsonRpcTransaction["header_deps"];
+    outputsData?: CkbJsonRpcTransaction["outputs_data"];
+  };
+
+  return {
+    // External funding submit only accepts signature/witness updates.
+    version: tx.version,
+    cell_deps: tx.cell_deps ?? tx.cellDeps ?? [],
+    header_deps: tx.header_deps ?? tx.headerDeps ?? [],
+    inputs: tx.inputs ?? [],
+    outputs: tx.outputs ?? [],
+    outputs_data: tx.outputs_data ?? tx.outputsData ?? [],
+    witnesses: witnesses.map((witness) => witness as `0x${string}`)
+  };
+};
 
 export class CccWalletManager {
   private readonly signersController = new ccc.SignersController();

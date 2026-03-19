@@ -997,7 +997,7 @@ export function App() {
                     <input
                       value={peerIdInput}
                       onChange={(event) => setPeerIdInput(event.target.value)}
-                      placeholder="/ip4/127.0.0.1/tcp/8248/ws/p2p/..."
+                      placeholder={DEFAULT_CHANNEL_PEER_ADDRESS}
                     />
                   </label>
                   <div className="modal-actions">

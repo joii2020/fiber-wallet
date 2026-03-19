@@ -62,6 +62,10 @@ type FiberCompat = Fiber & {
 };
 
 const CKB_SHANNONS = 100000000n;
+// Match Fiber's source behavior: peer init timeout is 20s, so keep retrying
+// a bit longer than that before surfacing an error to the user.
+const OPEN_CHANNEL_INIT_RETRY_ATTEMPTS = 80;
+const OPEN_CHANNEL_INIT_RETRY_INTERVAL_MS = 300;
 
 const isHex32 = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
 
@@ -70,6 +74,24 @@ const parsePeerId = (address: string): string => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+};
+
+const isPeerInitPendingError = (error: unknown): boolean =>
+  getErrorMessage(error).includes("waiting for peer to send Init message");
 
 const hexToBytes = (hex: string): Uint8Array => {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -302,7 +324,31 @@ export class FiberWasmManager {
   async openChannelWithExternalFunding(
     params: OpenChannelWithExternalFundingCompatParams
   ): Promise<OpenChannelWithExternalFundingCompatResult> {
-    const result = await (this.assertStarted() as FiberCompat).openChannelWithExternalFunding(params);
+    const fiber = this.assertStarted() as FiberCompat;
+    let result: OpenChannelWithExternalFundingCompatResult | undefined;
+
+    for (let i = 0; i < OPEN_CHANNEL_INIT_RETRY_ATTEMPTS; i += 1) {
+      try {
+        result = await fiber.openChannelWithExternalFunding(params);
+        break;
+      } catch (error) {
+        if (!isPeerInitPendingError(error) || i === OPEN_CHANNEL_INIT_RETRY_ATTEMPTS - 1) {
+          throw error;
+        }
+
+        console.warn("[fiber-wasm] peer init not ready, retrying openChannelWithExternalFunding", {
+          attempt: i + 1,
+          maxAttempts: OPEN_CHANNEL_INIT_RETRY_ATTEMPTS,
+          pubkey: params.pubkey
+        });
+        await sleep(OPEN_CHANNEL_INIT_RETRY_INTERVAL_MS);
+      }
+    }
+
+    if (!result) {
+      throw new Error("openChannelWithExternalFunding returned no result");
+    }
+
     console.log(`openChannelWithExternalFunding Res: ${stringify(result)}`);
     const normalized = result as {
       channel_id?: `0x${string}`;

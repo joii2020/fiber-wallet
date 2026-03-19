@@ -25,7 +25,7 @@ importers:
         version: 0.2.1(typescript@5.9.3)
       '@nervosnetwork/fiber-js':
         specifier: git+https://github.com/joii2020/fiber-wasm-dist.git
-        version: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/fc76b0a8dd91a0d90fe1a23dae7540f01bf49f87
+        version: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/f41752f3597fff2910d54fe0c8a16e020ab4953e
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -385,8 +385,8 @@ packages:
   '@nervosnetwork/ckb-types@0.109.5':
     resolution: {integrity: sha512-5jQNjFw76YCd+Ppl+0RvBWzxwvWaKfWC5wjVFFdNAieX7xksCHfZFIeow8je7AF8uVypwe56WlLBlblxw9NBBQ==}
 
-  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/fc76b0a8dd91a0d90fe1a23dae7540f01bf49f87':
-    resolution: {tarball: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/fc76b0a8dd91a0d90fe1a23dae7540f01bf49f87}
+  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/f41752f3597fff2910d54fe0c8a16e020ab4953e':
+    resolution: {tarball: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/f41752f3597fff2910d54fe0c8a16e020ab4953e}
     version: 0.7.0-dist.1
 
   '@noble/ciphers@0.5.3':
@@ -1454,7 +1454,7 @@ snapshots:
 
   '@nervosnetwork/ckb-types@0.109.5': {}
 
-  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/fc76b0a8dd91a0d90fe1a23dae7540f01bf49f87': {}
+  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/f41752f3597fff2910d54fe0c8a16e020ab4953e': {}
 
   '@noble/ciphers@0.5.3': {}
 
