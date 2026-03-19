@@ -40,3 +40,6 @@ Use the rewrites in `apps/vercel.json` to:
 
 - Fallback `/demo/*` to `/demo/index.html`
 - Fallback other paths to `/index.html`
+
+## Native Node WSS Deployment Guide
+[Native Node WSS Deployment Guide](./deploy/native-node/README.md)
