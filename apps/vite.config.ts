@@ -2,41 +2,26 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-/**
- * Original solution: COOP/COEP header configuration
- * For popup mode fiber-host.html
- */
 const COOP_COEP_HEADERS = {
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp"
+  "Cross-Origin-Embedder-Policy": "require-corp",
+  "Cross-Origin-Resource-Policy": "cross-origin"
 } as const;
 
-/**
- * New solution: Document-Isolation-Policy (DIP) configuration
- * For iframe mode fiber-host-dip.html
- * 
- * DIP advantages:
- * 1. Does not need to cut opener reference (unlike COOP)
- * 2. Can use iframe embedding, avoiding popup blocking
- * 3. Still enables cross-origin isolation environment
- * 
- * Optional values:
- * - isolate-and-credentialless: Isolated environment, cross-origin requests don't carry credentials
- * - isolate-and-require-corp: Isolated environment, cross-origin resources need CORP headers
- */
 const DIP_VALUE = "isolate-and-credentialless";
 const DIP_HEADERS = {
-  "Document-Isolation-Policy": DIP_VALUE
+  "Document-Isolation-Policy": DIP_VALUE,
+  "Cross-Origin-Resource-Policy": "cross-origin"
 } as const;
 
-// URL patterns for isolation policies
-const DIP_URLS = ["/", "/index.html"] as const;
+const DIP_URLS = ["/dip.html"] as const;
+const COOP_COEP_URLS = ["/coop.html"] as const;
 
 const matchesUrl = (url: string, patterns: readonly string[]): boolean =>
   patterns.some(pattern => url === pattern || url.startsWith(`${pattern}?`));
 
-// Check if DIP page (iframe mode)
 const isDipPage = (url: string): boolean => matchesUrl(url, DIP_URLS);
+const isCoopPage = (url: string): boolean => matchesUrl(url, COOP_COEP_URLS);
 
 const patchFiberJsInitSync = () => ({
   name: "patch-fiber-js-initsync",
@@ -69,6 +54,10 @@ const createIsolationHeadersMiddleware = (options: { log: boolean }) =>
     if (isDipPage(url)) {
       Object.entries(DIP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
       if (options.log) console.log(`[DIP] Applied to: ${url}`);
+    }
+    if (isCoopPage(url)) {
+      Object.entries(COOP_COEP_HEADERS).forEach(([key, value]) => res.setHeader(key, value));
+      if (options.log) console.log(`[COOP/COEP] Applied to: ${url}`);
     }
 
     next();
@@ -116,7 +105,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        wallet: resolve(__dirname, "index.html")
+        wallet: resolve(__dirname, "index.html"),
+        dip: resolve(__dirname, "dip.html"),
+        coop: resolve(__dirname, "coop.html")
       }
     }
   }

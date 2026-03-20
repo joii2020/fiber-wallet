@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fiber Wallet</title>
+    <script>
+      (() => {
+        const isDipReady =
+          window.crossOriginIsolated === true && typeof SharedArrayBuffer !== "undefined";
+
+        if (isDipReady) {
+          return;
+        }
+
+        const target = new URL("/coop.html", window.location.origin);
+        const params = new URLSearchParams(window.location.search);
+        params.set("dipFallback", "1");
+        target.search = params.toString();
+        if (window.location.hash) {
+          target.hash = window.location.hash;
+        }
+        window.location.replace(target.toString());
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -314,7 +314,7 @@ export function App() {
           setFiberStatus("error");
           setActivity(
             error instanceof FiberWasmRuntimeError
-              ? "Fiber requires SharedArrayBuffer. Redeploy with Vercel isolation headers and reload."
+              ? "Fiber requires SharedArrayBuffer. Open the isolated entry page and reload."
               : `Failed to initialize fiber: ${getErrorMessage(error)}`
           );
         }

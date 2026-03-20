@@ -35,7 +35,7 @@ const assertFiberRuntimeReady = (): void => {
   }
 
   throw new FiberWasmRuntimeError(
-    "SharedArrayBuffer is unavailable. Deploy this page with cross-origin isolation headers (for Vercel: Document-Isolation-Policy or COOP/COEP)."
+    "SharedArrayBuffer is unavailable. Load this app through an isolated entry page (DIP or COOP/COEP)."
   );
 };
 
