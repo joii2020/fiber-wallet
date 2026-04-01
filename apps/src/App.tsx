@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ccc as cccConnector, stringify } from "@ckb-ccc/connector-react";
 import { ccc } from "@ckb-ccc/ccc";
 import type { Channel as FiberChannel } from "@nervosnetwork/fiber-js";
@@ -24,6 +24,12 @@ type Channel = {
   status: ChannelStatus;
   statusLabel: string;
   balance: number;
+  rawStateName?: string;
+};
+type PendingCreatedChannel = {
+  id: string;
+  peerId: string;
+  hasAppeared: boolean;
 };
 type PayInvoiceInfo = {
   invoiceAddress: string;
@@ -43,6 +49,7 @@ const SHANNONS_PER_CKB = 100000000n;
 const DEFAULT_FUNDING_AMOUNT_SHANNONS = 1000n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS = 120n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_FUNDING_FEE_RATE = 3000n;
+const CHANNEL_CREATION_POLL_INTERVAL_MS = 500;
 const PAYMENT_STATUS_POLL_INTERVAL_MS = 800;
 const PAYMENT_STATUS_POLL_ATTEMPTS = 10;
 const RECEIVE_INVOICE_STATUS_POLL_INTERVAL_MS = 500;
@@ -75,17 +82,46 @@ const mapChannelState = (stateName?: string): { status: ChannelStatus; label: st
   }
 };
 
+const normalizeChannelStateName = (stateName?: string) => stateName?.trim().toLowerCase();
+
+const isCreatedChannelReady = (stateName?: string) => {
+  const normalized = normalizeChannelStateName(stateName);
+  return (
+    normalized === "ready" ||
+    normalized === "channelready" ||
+    normalized === "established" ||
+    normalized === "running"
+  );
+};
+
+const isCreatedChannelFailed = (stateName?: string) => {
+  const normalized = normalizeChannelStateName(stateName);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "closed" ||
+    normalized === "shutting_down" ||
+    normalized === "shutdown" ||
+    normalized === "failed" ||
+    normalized === "error" ||
+    normalized.includes("fail") ||
+    normalized.includes("error")
+  );
+};
+
 const convertFiberChannels = (fiberChannels: FiberChannel[]): Channel[] =>
   fiberChannels.map((channel) => {
-    const stateInfo = mapChannelState(
-      (channel as { state?: { state_name?: string } }).state?.state_name
-    );
+    const rawStateName = (channel as { state?: { state_name?: string } }).state?.state_name;
+    const stateInfo = mapChannelState(rawStateName);
     const localBalance = BigInt(channel.local_balance || "0x0");
     return {
       id: channel.channel_id,
       status: stateInfo.status,
       statusLabel: stateInfo.label,
-      balance: Number(localBalance) / 100_000_000
+      balance: Number(localBalance) / 100_000_000,
+      rawStateName
     };
   });
 
@@ -202,6 +238,14 @@ export function App() {
   const [availableChannelSigners, setAvailableChannelSigners] = useState<CkbSignerInfo[]>([]);
   const [channelSignerSelectorOpen, setChannelSignerSelectorOpen] = useState(false);
   const [pendingChannelPeerId, setPendingChannelPeerId] = useState("");
+  const [pendingCreatedChannel, setPendingCreatedChannel] = useState<PendingCreatedChannel | null>(
+    null
+  );
+  const pendingCreatedChannelRef = useRef<PendingCreatedChannel | null>(null);
+
+  useEffect(() => {
+    pendingCreatedChannelRef.current = pendingCreatedChannel;
+  }, [pendingCreatedChannel]);
 
   const walletManager = useMemo(
     () =>
@@ -349,6 +393,89 @@ export function App() {
       void refreshChannels();
     }
   }, [activeModal, fiberStatus, refreshChannels]);
+
+  useEffect(() => {
+    if (fiberStatus !== "running" || !pendingCreatedChannel) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+    let inFlight = false;
+
+    const stopTracking = () => {
+      setPendingCreatedChannel((current) =>
+        current?.id === pendingCreatedChannel.id ? null : current
+      );
+      cancelled = true;
+    };
+
+    const pollCreatedChannel = async () => {
+      if (cancelled || inFlight) {
+        return;
+      }
+
+      inFlight = true;
+      try {
+        console.log("refreshChannels");
+        const nextChannels = await loadChannels();
+        if (cancelled) {
+          return;
+        }
+
+        const currentPending = pendingCreatedChannelRef.current;
+        if (!currentPending || currentPending.id !== pendingCreatedChannel.id) {
+          return;
+        }
+
+        const matched = nextChannels.find((channel) => channel.id === currentPending.id);
+        if (!matched) {
+          if (currentPending.hasAppeared) {
+            setActivity(`Channel ${currentPending.id.slice(0, 12)}... disappeared. Stop tracking.`);
+            stopTracking();
+          }
+          return;
+        }
+
+        if (!currentPending.hasAppeared) {
+          setPendingCreatedChannel((current) =>
+            current?.id === matched.id ? { ...current, hasAppeared: true } : current
+          );
+        }
+
+        if (isCreatedChannelReady(matched.rawStateName)) {
+          setActivity(`Channel ${matched.id.slice(0, 12)}... is Ready.`);
+          stopTracking();
+          return;
+        }
+
+        if (isCreatedChannelFailed(matched.rawStateName)) {
+          setActivity(`Channel ${matched.id.slice(0, 12)}... failed: ${matched.statusLabel}.`);
+          stopTracking();
+          return;
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("[App] Failed to poll created channel:", error);
+          setActivity(`Failed to refresh channel creation status: ${getErrorMessage(error)}`);
+        }
+      } finally {
+        inFlight = false;
+        if (!cancelled) {
+          timer = window.setTimeout(pollCreatedChannel, CHANNEL_CREATION_POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    void pollCreatedChannel();
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [fiberStatus, loadChannels, pendingCreatedChannel]);
 
   useEffect(() => {
     if (activeModal !== "receive" || receiveStep !== "waiting" || !receivePaymentHash) {
@@ -736,6 +863,11 @@ export function App() {
         setActivity("Submitting signed funding transaction...");
         await fiber.submitSignedFundingTx(result.channel_id, signedFundingTx);
 
+        setPendingCreatedChannel({
+          id: result.channel_id,
+          peerId: trimmed,
+          hasAppeared: false
+        });
         resetCreateChannelState();
         await refreshChannels();
         setActivity(
