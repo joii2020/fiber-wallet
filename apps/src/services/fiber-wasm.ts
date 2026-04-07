@@ -29,14 +29,54 @@ const hasSharedArrayBufferSupport = (): boolean => {
   }
 };
 
+const isWindowSecureContext = (): boolean => {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.isSecureContext === true;
+};
+
+const isWindowCrossOriginIsolated = (): boolean => {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.crossOriginIsolated === true;
+};
+
+const getSharedArrayBufferUnavailableReason = (): string => {
+  const reasons: string[] = [];
+
+  if (!isWindowSecureContext()) {
+    reasons.push(
+      "This page is not running in a secure context. When opening the dev server from another device on your LAN, use HTTPS instead of plain HTTP."
+    );
+  }
+
+  if (!isWindowCrossOriginIsolated()) {
+    reasons.push(
+      "This page is not cross-origin isolated. Open the isolated entry page (DIP or COOP/COEP) and reload."
+    );
+  }
+
+  if (!hasSharedArrayBufferSupport()) {
+    reasons.push("SharedArrayBuffer is unavailable in this browser context.");
+  }
+
+  if (reasons.length === 0) {
+    return "SharedArrayBuffer is unavailable in this browser context.";
+  }
+
+  return reasons.join(" ");
+};
+
 const assertFiberRuntimeReady = (): void => {
   if (hasSharedArrayBufferSupport()) {
     return;
   }
 
-  throw new FiberWasmRuntimeError(
-    "SharedArrayBuffer is unavailable. Load this app through an isolated entry page (DIP or COOP/COEP)."
-  );
+  throw new FiberWasmRuntimeError(getSharedArrayBufferUnavailableReason());
 };
 
 // Initialize WASM fiber on page load

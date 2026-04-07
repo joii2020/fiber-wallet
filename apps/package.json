@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
+    "dev:https": "vite --host --port 5173 --https",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host"
   },

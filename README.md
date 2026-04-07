@@ -11,6 +11,29 @@ pnpm dev
 
 Default access: http://localhost:5173/
 
+For Fiber WASM on another device in your LAN, plain `http://<your-lan-ip>:5173` is not enough because `SharedArrayBuffer` requires a trustworthy secure context.
+
+Place a development certificate and key at:
+
+- `apps/certs/dev-cert.pem`
+- `apps/certs/dev-key.pem`
+
+Or point Vite at custom files with:
+
+- `VITE_DEV_SSL_CERT=/absolute/path/to/dev-cert.pem`
+- `VITE_DEV_SSL_KEY=/absolute/path/to/dev-key.pem`
+
+When those files exist, the app dev server and preview server automatically enable HTTPS, so you can open:
+
+- `https://localhost:5173/`
+- `https://<your-lan-ip>:5173/`
+
+If you need to force HTTPS startup explicitly, use:
+
+```bash
+pnpm --dir apps dev:https
+```
+
 ## External Funding Semantics
 
 The external funding flow in `fiber-js` now works with the following semantics:

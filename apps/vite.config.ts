@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -22,6 +23,20 @@ const matchesUrl = (url: string, patterns: readonly string[]): boolean =>
 
 const isDipPage = (url: string): boolean => matchesUrl(url, DIP_URLS);
 const isCoopPage = (url: string): boolean => matchesUrl(url, COOP_COEP_URLS);
+
+const DEV_HTTPS_CERT_PATH = process.env.VITE_DEV_SSL_CERT ?? resolve(__dirname, "certs/dev-cert.pem");
+const DEV_HTTPS_KEY_PATH = process.env.VITE_DEV_SSL_KEY ?? resolve(__dirname, "certs/dev-key.pem");
+
+const getDevHttpsConfig = (): false | { cert: Buffer; key: Buffer } => {
+  if (!existsSync(DEV_HTTPS_CERT_PATH) || !existsSync(DEV_HTTPS_KEY_PATH)) {
+    return false;
+  }
+
+  return {
+    cert: readFileSync(DEV_HTTPS_CERT_PATH),
+    key: readFileSync(DEV_HTTPS_KEY_PATH)
+  };
+};
 
 const patchFiberJsInitSync = () => ({
   name: "patch-fiber-js-initsync",
@@ -95,12 +110,17 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    https: getDevHttpsConfig(),
     proxy: {
       "/fiber-api": {
         target: "http://127.0.0.1:8247",
         changeOrigin: true
       }
     }
+  },
+  preview: {
+    host: true,
+    https: getDevHttpsConfig()
   },
   build: {
     rollupOptions: {
