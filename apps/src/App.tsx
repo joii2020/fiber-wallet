@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ccc as cccConnector, stringify } from "@ckb-ccc/connector-react";
 import { ccc } from "@ckb-ccc/ccc";
-import type { Channel as FiberChannel } from "@nervosnetwork/fiber-js";
+import {
+  getRedirectResponse,
+  isRedirectFromJoyID,
+  type AuthResponseData,
+  type CKBTransaction as JoyIdCkbTransaction,
+  type SignMessageResponseData
+} from "@joyid/common";
+import { buildSignedTx } from "@joyid/ckb";
+import type { Channel as FiberChannel, CkbJsonRpcTransaction } from "@nervosnetwork/fiber-js";
 import {
   CccWalletManager,
+  withFundingTxWitnesses,
   toFiberScript,
   type CkbSignerInfo,
   type OpenChannelWithExternalFundingCompatParams
@@ -12,6 +21,7 @@ import { WalletButton } from "./components/WalletButton";
 import { FiberWasmRuntimeError, fiber, fiberReady } from "./services/fiber-wasm";
 import { truncateAddress } from "./utils/stringUtils";
 import { DEFAULT_CHANNEL_PEER_ADDRESS } from "./config";
+import { isJoyIdPageMode } from "./shared/page-mode";
 
 type FiberStatus = "loading" | "running" | "error";
 type ModalKey = "pay" | "receive" | "channels" | null;
@@ -44,12 +54,57 @@ type ResolvedChannelSigner = {
   address: string;
   label: string;
 };
+type JoyIdRedirectState =
+  | { kind: "connect"; timestamp: number }
+  | { kind: "sign-funding"; channelId: string; peerId: string; timestamp: number };
+type PendingJoyIdFunding = {
+  channelId: string;
+  peerId: string;
+  unsignedFundingTx: CkbJsonRpcTransaction;
+  joyIdTx: JoyIdCkbTransaction;
+  witnessIndexes: number[];
+  fundingAmount: string;
+  createdAt: number;
+};
+type JoyIdWalletPanelInfo = {
+  address: string;
+  internalAddress: string;
+  balance: string;
+};
+
+const logFundingTxDebug = (
+  label: string,
+  channelId: string,
+  tx: CkbJsonRpcTransaction,
+  extra?: Record<string, unknown>
+): void => {
+  const firstInput = tx.inputs?.[0];
+  const firstWitness = tx.witnesses?.[0];
+  console.log(`[funding-tx] ${label}`, {
+    channelId,
+    version: tx.version,
+    inputCount: tx.inputs?.length ?? 0,
+    outputCount: tx.outputs?.length ?? 0,
+    witnessCount: tx.witnesses?.length ?? 0,
+    firstInputPreviousOutput: firstInput?.previous_output ?? null,
+    firstInputSince: firstInput?.since ?? null,
+    firstWitness: firstWitness ?? null,
+    cellDeps: tx.cell_deps ?? [],
+    headerDeps: tx.header_deps ?? [],
+    inputs: tx.inputs ?? [],
+    outputs: tx.outputs ?? [],
+    outputsData: tx.outputs_data ?? [],
+    witnesses: tx.witnesses ?? [],
+    ...extra
+  });
+};
 
 const SHANNONS_PER_CKB = 100000000n;
 const DEFAULT_FUNDING_AMOUNT_SHANNONS = 1000n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS = 120n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_FUNDING_FEE_RATE = 3000n;
 const CHANNEL_CREATION_POLL_INTERVAL_MS = 500;
+const CHANNEL_CREATION_RECONNECT_INTERVAL_MS = 3000;
 const PAYMENT_STATUS_POLL_INTERVAL_MS = 800;
 const PAYMENT_STATUS_POLL_ATTEMPTS = 10;
 const RECEIVE_INVOICE_STATUS_POLL_INTERVAL_MS = 500;
@@ -59,26 +114,184 @@ const PAYMENT_HASH_HEX_REGEX = /^0x[0-9a-fA-F]{64}$/;
 const PAYMENT_HASH_HEX_SEARCH_REGEX = /0x[0-9a-fA-F]{64}/;
 const INVOICE_SEARCH_REGEX = /(fib[bdt][a-z0-9]*1[023456789acdefghjklmnpqrstuvwxyz]+)/i;
 const INVISIBLE_SPACES_REGEX = /[\s\u200B-\u200D\uFEFF]/g;
+const JOYID_PENDING_FUNDING_STORAGE_KEY = "fiber-wallet:joyid-pending-funding";
+const JOYID_SECP256R1_HEX_BYTES = 64;
+const JOYID_SECP256R1_SCALAR_HEX_BYTES = 32;
 
 const toRpcHexAmount = (amount: bigint): `0x${string}` => `0x${amount.toString(16)}`;
 const formatCkb = (value: number): string => `${value.toFixed(2)} CKB`;
 
-const mapChannelState = (stateName?: string): { status: ChannelStatus; label: string } => {
+const utf8ToHex = (value: string): string =>
+  Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const trimLeadingZeroBytes = (hex: string): string => {
+  let normalized = hex.replace(/^0x/i, "");
+  while (normalized.length > 2 && normalized.startsWith("00")) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
+};
+
+const normalizeFixedWidthHex = (hex: string, expectedBytes: number): string => {
+  const expectedLength = expectedBytes * 2;
+  let normalized = trimLeadingZeroBytes(hex);
+  if (normalized.length > expectedLength) {
+    throw new Error(`JoyID returned an oversized signing field (${normalized.length} hex chars)`);
+  }
+  if (normalized.length % 2 === 1) {
+    normalized = `0${normalized}`;
+  }
+  return normalized.padStart(expectedLength, "0").toLowerCase();
+};
+
+const derSignatureHexToP1363 = (hex: string): string | null => {
+  const normalized = hex.replace(/^0x/i, "").toLowerCase();
+  if (!normalized.startsWith("30")) {
+    return null;
+  }
+
+  const bytes = Uint8Array.from(
+    normalized.match(/../g) ?? [],
+    (byte) => Number.parseInt(byte, 16)
+  );
+  if (bytes.length < 8 || bytes[0] !== 0x30) {
+    return null;
+  }
+
+  let offset = 1;
+  const readLength = (): number => {
+    const first = bytes[offset++];
+    if (first === undefined) {
+      throw new Error("Invalid DER signature length");
+    }
+    if ((first & 0x80) === 0) {
+      return first;
+    }
+    const count = first & 0x7f;
+    if (count === 0 || count > 4) {
+      throw new Error("Unsupported DER signature length encoding");
+    }
+    let value = 0;
+    for (let i = 0; i < count; i += 1) {
+      const next = bytes[offset++];
+      if (next === undefined) {
+        throw new Error("Truncated DER signature length");
+      }
+      value = (value << 8) | next;
+    }
+    return value;
+  };
+
+  try {
+    const sequenceLength = readLength();
+    if (offset + sequenceLength !== bytes.length) {
+      return null;
+    }
+    if (bytes[offset++] !== 0x02) {
+      return null;
+    }
+    const rLength = readLength();
+    const r = bytes.slice(offset, offset + rLength);
+    offset += rLength;
+    if (bytes[offset++] !== 0x02) {
+      return null;
+    }
+    const sLength = readLength();
+    const s = bytes.slice(offset, offset + sLength);
+    offset += sLength;
+    if (offset !== bytes.length) {
+      return null;
+    }
+
+    return `${normalizeFixedWidthHex(bytesToHex(r), JOYID_SECP256R1_SCALAR_HEX_BYTES)}${normalizeFixedWidthHex(bytesToHex(s), JOYID_SECP256R1_SCALAR_HEX_BYTES)}`;
+  } catch {
+    return null;
+  }
+};
+
+const decodeBase64LikeToHex = (value: string): string | null => {
+  const normalized = value.trim().replace(/-/g, "+").replace(/_/g, "/");
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    return null;
+  }
+
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  try {
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return bytesToHex(bytes);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeHexForWitness = (
+  value: string,
+  field: "pubkey" | "signature" | "message",
+  expectedBytes?: number
+): string => {
+  let normalized = value.trim().replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]*$/.test(normalized)) {
+    const decodedBase64 = decodeBase64LikeToHex(value);
+    if (decodedBase64 !== null) {
+      normalized = decodedBase64;
+    } else if (field === "message") {
+      normalized = utf8ToHex(value);
+    } else {
+      throw new Error(`JoyID returned a non-hex ${field}`);
+    }
+  }
+
+  if (normalized.length % 2 === 1) {
+    normalized = `0${normalized}`;
+  }
+
+  if (expectedBytes !== undefined) {
+    if (field === "signature") {
+      const maybeDerSignature = derSignatureHexToP1363(normalized);
+      if (maybeDerSignature !== null) {
+        return maybeDerSignature;
+      }
+    }
+    normalized = normalizeFixedWidthHex(normalized, expectedBytes);
+  }
+
+  return normalized.toLowerCase();
+};
+
+const normalizeJoyIdSignResponse = (
+  response: SignMessageResponseData
+): SignMessageResponseData => ({
+  ...response,
+  pubkey: normalizeHexForWitness(response.pubkey, "pubkey", JOYID_SECP256R1_HEX_BYTES),
+  signature: normalizeHexForWitness(response.signature, "signature", JOYID_SECP256R1_HEX_BYTES),
+  message: normalizeHexForWitness(response.message, "message")
+});
+
+const getChannelStatusTone = (stateName?: string): ChannelStatus => {
   switch (stateName?.toLowerCase()) {
     case "established":
     case "running":
-      return { status: "good", label: "Running" };
+      return "good";
     case "syncing":
     case "awaiting_tx_signatures":
-      return { status: "warn", label: "Syncing" };
+    case "awaitingchannelready":
+    case "awaitingtxsignatures":
+    case "collaboratingfundingtx":
+    case "signingcommitment":
+      return "warn";
     case "awaiting_peer":
     case "connecting":
-      return { status: "idle", label: "Awaiting Peer" };
+    case "negotiatingfunding":
+      return "idle";
     case "closed":
     case "shutting_down":
-      return { status: "error", label: "Closed" };
+      return "error";
     default:
-      return { status: "idle", label: stateName || "Unknown" };
+      return "idle";
   }
 };
 
@@ -91,6 +304,17 @@ const isCreatedChannelReady = (stateName?: string) => {
     normalized === "channelready" ||
     normalized === "established" ||
     normalized === "running"
+  );
+};
+
+const isCreatedChannelCollaborating = (stateName?: string) => {
+  const normalized = normalizeChannelStateName(stateName);
+  return (
+    normalized === "negotiatingfunding" ||
+    normalized === "collaboratingfundingtx" ||
+    normalized === "signingcommitment" ||
+    normalized === "awaitingtxsignatures" ||
+    normalized === "awaitingchannelready"
   );
 };
 
@@ -114,12 +338,11 @@ const isCreatedChannelFailed = (stateName?: string) => {
 const convertFiberChannels = (fiberChannels: FiberChannel[]): Channel[] =>
   fiberChannels.map((channel) => {
     const rawStateName = (channel as { state?: { state_name?: string } }).state?.state_name;
-    const stateInfo = mapChannelState(rawStateName);
     const localBalance = BigInt(channel.local_balance || "0x0");
     return {
       id: channel.channel_id,
-      status: stateInfo.status,
-      statusLabel: stateInfo.label,
+      status: getChannelStatusTone(rawStateName),
+      statusLabel: rawStateName || "Unknown",
       balance: Number(localBalance) / 100_000_000,
       rawStateName
     };
@@ -193,6 +416,42 @@ const isInvoiceFormatError = (message: string): boolean => {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const getCleanCurrentUrl = (): string => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("_data_");
+  url.searchParams.delete("joyid-redirect");
+  return url.toString();
+};
+
+const cleanupJoyIdRedirectParams = (): void => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("_data_");
+  url.searchParams.delete("joyid-redirect");
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+};
+
+const loadPendingJoyIdFunding = (): PendingJoyIdFunding | null => {
+  const raw = localStorage.getItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as PendingJoyIdFunding;
+  } catch {
+    localStorage.removeItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+    return null;
+  }
+};
+
+const savePendingJoyIdFunding = (pending: PendingJoyIdFunding): void => {
+  localStorage.setItem(JOYID_PENDING_FUNDING_STORAGE_KEY, JSON.stringify(pending));
+};
+
+const clearPendingJoyIdFunding = (): void => {
+  localStorage.removeItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+};
+
 const buildPayInvoiceInfo = (
   targetValue: string,
   invoice: Awaited<ReturnType<typeof fiber.parseInvoice>>["invoice"]
@@ -211,6 +470,7 @@ const buildPayInvoiceInfo = (
 export function App() {
   const { open, client, wallet, signerInfo } = cccConnector.useCcc();
   const connectedSigner = cccConnector.useSigner();
+  const joyIdOnlyMode = useMemo(() => isJoyIdPageMode(), []);
   const [activeModal, setActiveModal] = useState<ModalKey>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [isLoadingChannels, setIsLoadingChannels] = useState(false);
@@ -233,6 +493,9 @@ export function App() {
   const [fiberStatus, setFiberStatus] = useState<FiberStatus>("loading");
   const [selectedChannelSignerInfo, setSelectedChannelSignerInfo] = useState<CkbSignerInfo | null>(null);
   const [selectedChannelSignerAddress, setSelectedChannelSignerAddress] = useState("");
+  const [joyIdWalletPanelOpen, setJoyIdWalletPanelOpen] = useState(false);
+  const [joyIdWalletPanelInfo, setJoyIdWalletPanelInfo] = useState<JoyIdWalletPanelInfo | null>(null);
+  const [isLoadingJoyIdWalletPanel, setIsLoadingJoyIdWalletPanel] = useState(false);
   const [connectedWalletAddress, setConnectedWalletAddress] = useState("");
   const [isPreparingChannelSigner, setIsPreparingChannelSigner] = useState(false);
   const [availableChannelSigners, setAvailableChannelSigners] = useState<CkbSignerInfo[]>([]);
@@ -242,6 +505,7 @@ export function App() {
     null
   );
   const pendingCreatedChannelRef = useRef<PendingCreatedChannel | null>(null);
+  const joyIdRedirectHandledRef = useRef(false);
 
   useEffect(() => {
     pendingCreatedChannelRef.current = pendingCreatedChannel;
@@ -257,15 +521,23 @@ export function App() {
   );
 
   const activeChannelSignerLabel = useMemo(() => {
+    if (joyIdOnlyMode && selectedChannelSignerInfo) {
+      return selectedChannelSignerInfo.label;
+    }
     if (wallet && signerInfo) {
       return `${wallet.name} / ${signerInfo.name}`;
     }
     return selectedChannelSignerInfo?.label;
-  }, [wallet, signerInfo, selectedChannelSignerInfo]);
+  }, [joyIdOnlyMode, wallet, signerInfo, selectedChannelSignerInfo]);
 
   const activeChannelSignerAddress = useMemo(
-    () => (connectedSigner ? connectedWalletAddress : selectedChannelSignerAddress),
-    [connectedSigner, connectedWalletAddress, selectedChannelSignerAddress]
+    () =>
+      joyIdOnlyMode
+        ? selectedChannelSignerAddress
+        : connectedSigner
+          ? connectedWalletAddress
+          : selectedChannelSignerAddress,
+    [connectedSigner, connectedWalletAddress, joyIdOnlyMode, selectedChannelSignerAddress]
   );
 
   const resetPayState = useCallback(() => {
@@ -336,6 +608,43 @@ export function App() {
   }, [connectedSigner]);
 
   useEffect(() => {
+    if (!joyIdOnlyMode) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function restoreJoyIdSigner() {
+      try {
+        const signerInfo = await walletManager.getJoyIdCkbSigner();
+        if (!signerInfo) {
+          return;
+        }
+
+        if (!(await signerInfo.signer.isConnected())) {
+          return;
+        }
+
+        const address = await signerInfo.signer.getRecommendedAddress();
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedChannelSignerInfo(signerInfo);
+        setSelectedChannelSignerAddress(address);
+      } catch (error) {
+        console.warn("[App] Failed to restore JoyID signer:", error);
+      }
+    }
+
+    void restoreJoyIdSigner();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [joyIdOnlyMode, walletManager]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function initFiber() {
@@ -389,6 +698,116 @@ export function App() {
   }, [fiberStatus, loadChannels]);
 
   useEffect(() => {
+    if (joyIdRedirectHandledRef.current || !isRedirectFromJoyID()) {
+      return;
+    }
+
+    joyIdRedirectHandledRef.current = true;
+    let cancelled = false;
+
+    async function handleJoyIdRedirect() {
+      try {
+        const response = getRedirectResponse<
+          (AuthResponseData | SignMessageResponseData) & { state?: JoyIdRedirectState }
+        >();
+        cleanupJoyIdRedirectParams();
+        const pending = loadPendingJoyIdFunding();
+        const isFundingSignatureResponse =
+          pending !== null &&
+          "signature" in response &&
+          typeof response.signature === "string" &&
+          "message" in response &&
+          typeof response.message === "string" &&
+          "pubkey" in response &&
+          typeof response.pubkey === "string";
+
+        if (isFundingSignatureResponse) {
+          const signResponse = response as SignMessageResponseData & { state?: JoyIdRedirectState };
+          console.log("[joyid] raw redirect signing payload", {
+            pubkeyType: typeof signResponse.pubkey,
+            signatureType: typeof signResponse.signature,
+            messageType: typeof signResponse.message,
+            pubkeyLooksLikeBase64: /^[A-Za-z0-9+/_=-]+$/.test(String(signResponse.pubkey)),
+            signatureLooksLikeBase64: /^[A-Za-z0-9+/_=-]+$/.test(String(signResponse.signature)),
+            messageLooksLikeBase64: /^[A-Za-z0-9+/_=-]+$/.test(String(signResponse.message)),
+            pubkeyPreview: String(signResponse.pubkey).slice(0, 80),
+            signaturePreview: String(signResponse.signature).slice(0, 80),
+            messagePreview: String(signResponse.message).slice(0, 120)
+          });
+
+          setActivity("Restoring JoyID funding signature...");
+          await fiberReady;
+          setActivity(`Reconnecting peer ${pending.peerId}...`);
+          const relayInfo = fiber.parseRelayInfo(pending.peerId);
+          await fiber.connectPeer(relayInfo);
+
+          const normalizedSignResponse = normalizeJoyIdSignResponse(signResponse);
+          console.log("[joyid] normalized redirect signing payload", {
+            pubkeyHexLength: normalizedSignResponse.pubkey.length,
+            signatureHexLength: normalizedSignResponse.signature.length,
+            messageHexLength: normalizedSignResponse.message.length
+          });
+          const signedJoyIdTx = buildSignedTx(
+            pending.joyIdTx,
+            normalizedSignResponse,
+            pending.witnessIndexes
+          );
+          const signedFundingTx = withFundingTxWitnesses(
+            pending.unsignedFundingTx,
+            signedJoyIdTx.witnesses
+          );
+          console.log(`joyid unsigned funding tx before submit: ${ccc.stringify(pending.unsignedFundingTx)}`);
+          console.log(`joyid signed funding tx before submit: ${ccc.stringify(signedFundingTx)}`);
+
+          setActivity("Submitting signed funding transaction...");
+          await fiber.submitSignedFundingTxWithRetry(pending.channelId, signedFundingTx);
+          clearPendingJoyIdFunding();
+
+          if (cancelled) {
+            return;
+          }
+
+          setPendingCreatedChannel({
+            id: pending.channelId,
+            peerId: pending.peerId,
+            hasAppeared: false
+          });
+          await refreshChannels();
+          setActivity(
+            `Channel creation submitted for ${pending.peerId}. Funding: ${pending.fundingAmount} CKB.`
+          );
+          return;
+        }
+
+        const authResponse = response as AuthResponseData & { state?: JoyIdRedirectState };
+        if (authResponse.state?.kind === "connect" || authResponse.address) {
+          const joyIdSignerInfo = await walletManager.persistJoyIdCkbConnection(authResponse);
+          const address = await joyIdSignerInfo.signer.getRecommendedAddress();
+          if (cancelled) {
+            return;
+          }
+
+          setSelectedChannelSignerInfo(joyIdSignerInfo);
+          setSelectedChannelSignerAddress(address);
+          setActivity(`JoyID wallet connected: ${truncateAddress(address)}.`);
+        }
+      } catch (error) {
+        cleanupJoyIdRedirectParams();
+        console.error("[App] Failed to handle JoyID redirect:", error);
+        if (!cancelled) {
+          setActivityFromError("JoyID redirect failed", error);
+        }
+      }
+    }
+
+    void handleJoyIdRedirect();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshChannels, setActivityFromError, walletManager]);
+
+  useEffect(() => {
     if (activeModal === "channels" && fiberStatus === "running") {
       void refreshChannels();
     }
@@ -402,6 +821,7 @@ export function App() {
     let cancelled = false;
     let timer: number | undefined;
     let inFlight = false;
+    let lastReconnectAt = 0;
 
     const stopTracking = () => {
       setPendingCreatedChannel((current) =>
@@ -441,6 +861,26 @@ export function App() {
           setPendingCreatedChannel((current) =>
             current?.id === matched.id ? { ...current, hasAppeared: true } : current
           );
+        }
+
+        if (
+          isCreatedChannelCollaborating(matched.rawStateName) &&
+          Date.now() - lastReconnectAt >= CHANNEL_CREATION_RECONNECT_INTERVAL_MS
+        ) {
+          lastReconnectAt = Date.now();
+          try {
+            const relayInfo = fiber.parseRelayInfo(currentPending.peerId);
+            await fiber.connectPeer(relayInfo);
+            if (!cancelled) {
+              setActivity(
+                `Channel ${matched.id.slice(0, 12)}... is ${matched.statusLabel}. Reconnected peer and waiting...`
+              );
+            }
+          } catch (error) {
+            if (!cancelled) {
+              console.warn("[App] Failed to reconnect peer while tracking channel:", error);
+            }
+          }
         }
 
         if (isCreatedChannelReady(matched.rawStateName)) {
@@ -622,8 +1062,95 @@ export function App() {
     [walletManager]
   );
 
+  const handleJoyIdConnect = useCallback(async () => {
+    const joyIdSignerInfo = await walletManager.getJoyIdCkbSigner();
+    if (!joyIdSignerInfo) {
+      throw new Error("JoyID CKB signer is unavailable");
+    }
+
+    if (await joyIdSignerInfo.signer.isConnected()) {
+      const address = await joyIdSignerInfo.signer.getRecommendedAddress();
+      setSelectedChannelSignerInfo(joyIdSignerInfo);
+      setSelectedChannelSignerAddress(address);
+      setActivity(`JoyID wallet ready: ${truncateAddress(address)}.`);
+      return;
+    }
+
+    setActivity("Redirecting to JoyID for wallet authorization...");
+    walletManager.redirectToJoyIdAuth(getCleanCurrentUrl(), {
+      kind: "connect",
+      timestamp: Date.now()
+    } satisfies JoyIdRedirectState);
+  }, [walletManager]);
+
+  const handleOpenJoyIdWalletPanel = useCallback(async () => {
+    if (!selectedChannelSignerInfo) {
+      await handleJoyIdConnect();
+      return;
+    }
+
+    setJoyIdWalletPanelOpen(true);
+    setIsLoadingJoyIdWalletPanel(true);
+    try {
+      const [address, internalAddress, balance] = await Promise.all([
+        selectedChannelSignerInfo.signer.getRecommendedAddress(),
+        selectedChannelSignerInfo.signer.getInternalAddress(),
+        selectedChannelSignerInfo.signer.getBalance()
+      ]);
+
+      setJoyIdWalletPanelInfo({
+        address,
+        internalAddress,
+        balance: ccc.fixedPointToString(balance)
+      });
+    } catch (error) {
+      console.error("[App] Failed to load JoyID wallet panel info:", error);
+      setJoyIdWalletPanelInfo(null);
+      setActivityFromError("Failed to load JoyID wallet info", error);
+    } finally {
+      setIsLoadingJoyIdWalletPanel(false);
+    }
+  }, [handleJoyIdConnect, selectedChannelSignerInfo, setActivityFromError]);
+
+  const handleDisconnectJoyId = useCallback(async () => {
+    if (!selectedChannelSignerInfo) {
+      setJoyIdWalletPanelOpen(false);
+      return;
+    }
+
+    try {
+      await selectedChannelSignerInfo.signer.disconnect();
+    } catch (error) {
+      console.warn("[App] Failed to disconnect JoyID signer:", error);
+    } finally {
+      setSelectedChannelSignerInfo(null);
+      setSelectedChannelSignerAddress("");
+      setJoyIdWalletPanelInfo(null);
+      setJoyIdWalletPanelOpen(false);
+      setActivity("JoyID wallet disconnected.");
+    }
+  }, [selectedChannelSignerInfo]);
+
   const ensureChannelSigner = useCallback(
     async (peerId: string): Promise<ResolvedChannelSigner | null> => {
+      if (joyIdOnlyMode) {
+        const joyIdSignerInfo = await walletManager.getJoyIdCkbSigner();
+        if (!joyIdSignerInfo) {
+          throw new Error("JoyID CKB signer is unavailable");
+        }
+
+        if (!(await joyIdSignerInfo.signer.isConnected())) {
+          setActivity(`Redirecting to JoyID before opening channel ${peerId}...`);
+          walletManager.redirectToJoyIdAuth(getCleanCurrentUrl(), {
+            kind: "connect",
+            timestamp: Date.now()
+          } satisfies JoyIdRedirectState);
+          return null;
+        }
+
+        return connectSelectedChannelSigner(joyIdSignerInfo);
+      }
+
       if (connectedSigner) {
         const support = await walletManager.getFundingSignerSupport(connectedSigner);
         if (support.supported) {
@@ -674,7 +1201,15 @@ export function App() {
       setIsPreparingChannelSigner(false);
       return null;
     },
-    [connectSelectedChannelSigner, connectedSigner, selectedChannelSignerInfo, signerInfo, wallet, walletManager]
+    [
+      connectSelectedChannelSigner,
+      connectedSigner,
+      joyIdOnlyMode,
+      selectedChannelSignerInfo,
+      signerInfo,
+      wallet,
+      walletManager
+    ]
   );
 
   const handlePayLookup = useCallback(async () => {
@@ -854,11 +1389,60 @@ export function App() {
         console.log(`openchannel param: ${stringify(openChannelParams)}`);
         const result = await fiber.openChannelWithExternalFunding(openChannelParams);
 
+        if (joyIdOnlyMode && resolved.signer.signType === ccc.SignerSignType.JoyId) {
+          const joyIdRedirect = await walletManager.prepareJoyIdSignTx(
+            result.unsigned_funding_tx,
+            resolved.signer
+          );
+          logFundingTxDebug("joyid unsigned funding tx before redirect", result.channel_id, result.unsigned_funding_tx, {
+            peerId: trimmed,
+            fundingAmount: ccc.fixedPointToString(fundingAmount),
+            joyIdWitnessIndexes: joyIdRedirect.witnessIndexes,
+            joyIdAddress: joyIdRedirect.address,
+            joyIdChallenge: joyIdRedirect.challenge
+          });
+          savePendingJoyIdFunding({
+            channelId: result.channel_id,
+            peerId: trimmed,
+            unsignedFundingTx: result.unsigned_funding_tx,
+            joyIdTx: joyIdRedirect.tx,
+            witnessIndexes: joyIdRedirect.witnessIndexes,
+            fundingAmount: ccc.fixedPointToString(fundingAmount),
+            createdAt: Date.now()
+          });
+          setActivity("Redirecting to JoyID to sign funding transaction...");
+          walletManager.redirectToJoyIdSignTx({
+            challenge: joyIdRedirect.challenge,
+            address: joyIdRedirect.address,
+            redirectURL: getCleanCurrentUrl(),
+            state: {
+              kind: "sign-funding",
+              channelId: result.channel_id,
+              peerId: trimmed,
+              timestamp: Date.now()
+            } satisfies JoyIdRedirectState
+          });
+          return;
+        }
+
         setActivity(`Signing funding transaction with ${resolved.label}...`);
         const signedFundingTx = await walletManager.signFundingTx(
           result.unsigned_funding_tx,
           resolved.signer
         );
+        logFundingTxDebug("standard unsigned funding tx before submit", result.channel_id, result.unsigned_funding_tx, {
+          signerLabel: resolved.label,
+          signerAddress: resolved.address,
+          signerType: resolved.signer.type,
+          signType: resolved.signer.signType
+        });
+        logFundingTxDebug("standard signed funding tx before submit", result.channel_id, signedFundingTx, {
+          signerLabel: resolved.label,
+          signerAddress: resolved.address,
+          signerType: resolved.signer.type,
+          signType: resolved.signer.signType
+        });
+        console.log(`standard signed funding tx before submit: ${ccc.stringify(signedFundingTx)}`);
 
         setActivity("Submitting signed funding transaction...");
         await fiber.submitSignedFundingTx(result.channel_id, signedFundingTx);
@@ -880,7 +1464,16 @@ export function App() {
         setIsPreparingChannelSigner(false);
       }
     },
-    [ensureChannelSigner, fiberStatus, peerIdInput, refreshChannels, resetCreateChannelState, setActivityFromError, walletManager]
+    [
+      ensureChannelSigner,
+      fiberStatus,
+      joyIdOnlyMode,
+      peerIdInput,
+      refreshChannels,
+      resetCreateChannelState,
+      setActivityFromError,
+      walletManager
+    ]
   );
 
   const handleChannelSignerSelected = useCallback(
@@ -962,7 +1555,19 @@ export function App() {
       <section className="button-grid">
         <ActionCard title="Pay" disabled={!paymentEnabled} onClick={() => openModal("pay")} centered />
         <ActionCard title="Receive" disabled={!paymentEnabled} onClick={() => void handleOpenReceive()} centered />
-        <WalletButton onClick={open} />
+        <WalletButton
+          onClick={joyIdOnlyMode ? () => void handleOpenJoyIdWalletPanel() : open}
+          onConnect={joyIdOnlyMode ? () => void handleJoyIdConnect() : undefined}
+          walletOverride={
+            joyIdOnlyMode && selectedChannelSignerInfo
+              ? {
+                name: selectedChannelSignerInfo.walletName,
+                icon: selectedChannelSignerInfo.walletIcon
+              }
+              : null
+          }
+          signerOverride={joyIdOnlyMode ? selectedChannelSignerInfo?.signer ?? null : null}
+        />
         <ActionCard title="Channels" meta={`${channelCount} Open`} onClick={() => openModal("channels")} />
       </section>
 
@@ -1174,6 +1779,46 @@ export function App() {
                 )}
               </div>
             </div>
+          )}
+        </Modal>
+      )}
+
+      {joyIdOnlyMode && joyIdWalletPanelOpen && (
+        <Modal title="Wallet" onClose={() => setJoyIdWalletPanelOpen(false)}>
+          {isLoadingJoyIdWalletPanel ? (
+            <div className="wait-box">
+              <div className="spinner" aria-hidden="true" />
+              <span>Loading wallet</span>
+            </div>
+          ) : (
+            <>
+              <div className="box">
+                <span className="subtle">Address</span>
+                <strong>
+                  {joyIdWalletPanelInfo
+                    ? truncateAddress(joyIdWalletPanelInfo.address, 10, 8)
+                    : "--"}
+                </strong>
+                <p className="subtle">{joyIdWalletPanelInfo?.balance ?? "--"} CKB</p>
+                <p className="subtle">
+                  {joyIdWalletPanelInfo
+                    ? truncateAddress(joyIdWalletPanelInfo.internalAddress, 12, 10)
+                    : "--"}
+                </p>
+              </div>
+              <div className="modal-actions">
+                <button
+                  onClick={() => window.open("https://mobit.app/", "_blank", "noopener,noreferrer")}
+                  type="button"
+                >
+                  Manage
+                </button>
+                <button className="secondary" onClick={() => void handleDisconnectJoyId()} type="button">
+                  Disconnect
+                </button>
+              </div>
+              <p className="subtle">Network: Testnet</p>
+            </>
           )}
         </Modal>
       )}

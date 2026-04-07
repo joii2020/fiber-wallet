@@ -1,5 +1,13 @@
 import { ccc } from "@ckb-ccc/ccc";
 import type { CkbJsonRpcTransaction } from "@nervosnetwork/fiber-js";
+import {
+  authWithRedirect,
+  signMessageWithRedirect,
+  type AuthResponseData,
+  type CKBTransaction as JoyIdCkbTransaction,
+  type SignMessageRequest
+} from "@joyid/common";
+import { calculateChallenge } from "@joyid/ckb";
 import { toFiberCellDep } from "./fiber-wasm";
 import { toCccTransaction } from "./transaction";
 
@@ -62,6 +70,12 @@ export type CccWalletManagerOptions = {
   client?: ccc.Client;
   appName?: string;
   appIcon?: string;
+};
+
+type JoyIdConnection = {
+  address: string;
+  publicKey: string;
+  keyType: string;
 };
 
 const DEFAULT_APP_ICON =
@@ -186,6 +200,106 @@ export class CccWalletManager {
           }
         )
         .catch((error) => reject(error));
+    });
+  }
+
+  async getJoyIdCkbSigner(): Promise<CkbSignerInfo | null> {
+    const signers = await this.refreshCkbSigners();
+    return (
+      signers.find(
+        (info) =>
+          info.signer.type === ccc.SignerType.CKB &&
+          info.signer.signType === ccc.SignerSignType.JoyId
+      ) ?? null
+    );
+  }
+
+  async persistJoyIdCkbConnection(response: Pick<AuthResponseData, "address" | "pubkey" | "keyType">) {
+    const signerInfo = await this.getJoyIdCkbSigner();
+    if (!signerInfo) {
+      throw new Error("JoyID CKB signer is unavailable");
+    }
+
+    const signer = signerInfo.signer as ccc.Signer & {
+      connection?: JoyIdConnection;
+      saveConnection?: () => Promise<void>;
+    };
+
+    signer.connection = {
+      address: response.address,
+      publicKey: ccc.hexFrom(response.pubkey),
+      keyType: response.keyType
+    };
+
+    if (typeof signer.saveConnection === "function") {
+      await signer.saveConnection();
+    }
+
+    return signerInfo;
+  }
+
+  redirectToJoyIdAuth(redirectURL: string, state?: unknown): void {
+    authWithRedirect({
+      redirectURL,
+      joyidAppURL: this.client.addressPrefix === "ckb" ? "https://app.joy.id" : "https://testnet.joyid.dev",
+      name: this.appName,
+      logo: this.appIcon,
+      requestNetwork: "nervos",
+      state
+    });
+  }
+
+  async prepareJoyIdSignTx(
+    unsignedTx: CkbJsonRpcTransaction,
+    signer: ccc.Signer
+  ): Promise<{
+    tx: JoyIdCkbTransaction;
+    witnessIndexes: number[];
+    address: string;
+    challenge: string;
+  }> {
+    const tx = ccc.Transaction.from(toCccTransaction(unsignedTx));
+    const { script } = await signer.getRecommendedAddressObj();
+    const witnessIndexes = await ccc.reduceAsync(tx.inputs, async (acc, input, index) => {
+      const { cellOutput } = await input.getCell(this.client);
+      if (cellOutput.lock.eq(script)) {
+        acc.push(index);
+      }
+    }, [] as number[]);
+
+    const firstWitnessIndex = witnessIndexes[0];
+    if (firstWitnessIndex === undefined) {
+      throw new Error("No JoyID-controlled inputs found in funding transaction");
+    }
+
+    await tx.prepareSighashAllWitness(script, firstWitnessIndex, this.client);
+    tx.inputs.forEach((input) => {
+      input.cellOutput = undefined;
+      input.outputData = undefined;
+    });
+
+    const joyIdTx = JSON.parse(tx.stringify()) as JoyIdCkbTransaction;
+    const challenge = await calculateChallenge(joyIdTx, witnessIndexes);
+
+    return {
+      tx: joyIdTx,
+      witnessIndexes,
+      address: await signer.getRecommendedAddress(),
+      challenge
+    };
+  }
+
+  redirectToJoyIdSignTx(
+    request: Pick<SignMessageRequest, "challenge" | "address" | "redirectURL" | "state">
+  ): void {
+    signMessageWithRedirect({
+      challenge: request.challenge,
+      address: request.address,
+      redirectURL: request.redirectURL,
+      joyidAppURL: this.client.addressPrefix === "ckb" ? "https://app.joy.id" : "https://testnet.joyid.dev",
+      name: this.appName,
+      logo: this.appIcon,
+      state: request.state
     });
   }
 

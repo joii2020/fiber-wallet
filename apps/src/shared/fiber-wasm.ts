@@ -66,6 +66,8 @@ const CKB_SHANNONS = 100000000n;
 // a bit longer than that before surfacing an error to the user.
 const OPEN_CHANNEL_INIT_RETRY_ATTEMPTS = 80;
 const OPEN_CHANNEL_INIT_RETRY_INTERVAL_MS = 300;
+const SUBMIT_SIGNED_FUNDING_TX_RETRY_ATTEMPTS = 30;
+const SUBMIT_SIGNED_FUNDING_TX_RETRY_INTERVAL_MS = 500;
 
 const isHex32 = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
 
@@ -92,6 +94,16 @@ const getErrorMessage = (error: unknown): string => {
 
 const isPeerInitPendingError = (error: unknown): boolean =>
   getErrorMessage(error).includes("waiting for peer to send Init message");
+
+const isSubmitSignedFundingTxRetryableError = (error: unknown): boolean => {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("channelnotfound") ||
+    message.includes("channel is closed") ||
+    message.includes("peer not found") ||
+    message.includes("messaging failed")
+  );
+};
 
 const hexToBytes = (hex: string): Uint8Array => {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -370,6 +382,34 @@ export class FiberWasmManager {
       channel_id: channelId as `0x${string}`,
       signed_funding_tx: signedTx
     });
+  }
+
+  async submitSignedFundingTxWithRetry(channelId: string, signedTx: CkbJsonRpcTransaction) {
+    const fiber = this.assertStarted();
+
+    for (let i = 0; i < SUBMIT_SIGNED_FUNDING_TX_RETRY_ATTEMPTS; i += 1) {
+      try {
+        return await fiber.submitSignedFundingTx({
+          channel_id: channelId as `0x${string}`,
+          signed_funding_tx: signedTx
+        });
+      } catch (error) {
+        if (
+          !isSubmitSignedFundingTxRetryableError(error) ||
+          i === SUBMIT_SIGNED_FUNDING_TX_RETRY_ATTEMPTS - 1
+        ) {
+          throw error;
+        }
+
+        console.warn("[fiber-wasm] submitSignedFundingTx not ready, retrying", {
+          attempt: i + 1,
+          maxAttempts: SUBMIT_SIGNED_FUNDING_TX_RETRY_ATTEMPTS,
+          channelId,
+          message: getErrorMessage(error)
+        });
+        await sleep(SUBMIT_SIGNED_FUNDING_TX_RETRY_INTERVAL_MS);
+      }
+    }
   }
 
   async shutdownChannel(channelId: string) {

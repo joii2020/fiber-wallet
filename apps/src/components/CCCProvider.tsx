@@ -1,13 +1,21 @@
 import { ccc } from "@ckb-ccc/connector-react";
 import type { CSSProperties, ReactNode } from "react";
+import { isJoyIdPageMode } from "../shared/page-mode";
 
 type CCCProviderProps = {
   children: ReactNode;
 };
 
 export function CCCProvider({ children }: CCCProviderProps) {
+  const joyIdOnly = isJoyIdPageMode();
+
   return (
     <ccc.Provider
+      signerFilter={
+        joyIdOnly
+          ? async (signerInfo) => signerInfo.signer.signType === ccc.SignerSignType.JoyId
+          : undefined
+      }
       connectorProps={{
         style: {
           "--background": "#232323",

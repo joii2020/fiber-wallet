@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { ccc } from "@ckb-ccc/connector-react";
+import { ccc as cccCore } from "@ckb-ccc/ccc";
 import { truncateAddress } from "../utils/stringUtils";
 
 type WalletButtonProps = {
   onClick?: () => void;
+  onConnect?: () => void;
   centered?: boolean;
+  walletOverride?: {
+    name: string;
+    icon?: string;
+  } | null;
+  signerOverride?: cccCore.Signer | null;
 };
 
-export function WalletButton({ onClick, centered = false }: WalletButtonProps) {
+export function WalletButton({
+  onClick,
+  onConnect,
+  centered = false,
+  walletOverride,
+  signerOverride
+}: WalletButtonProps) {
   const { open, wallet } = ccc.useCcc();
   const [balance, setBalance] = useState<string>("");
   const [address, setAddress] = useState<string>("");
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const signer = ccc.useSigner();
+  const connectedSigner = ccc.useSigner();
+  const signer = signerOverride ?? connectedSigner;
+  const effectiveWallet = walletOverride ?? wallet;
 
   const loadWalletInfo = useCallback(async () => {
     if (!signer) {
@@ -73,15 +88,19 @@ export function WalletButton({ onClick, centered = false }: WalletButtonProps) {
   }, [isRefreshing, signer, loadWalletInfo]);
 
   const handleClick = () => {
-    if (wallet && onClick) {
-      onClick();
+    if (effectiveWallet) {
+      onClick?.();
+      return;
+    }
+
+    if (onConnect) {
+      onConnect();
     } else {
       open();
     }
   };
 
-  // Not connected - show "Connect Wallet" button (centered, no meta)
-  if (!wallet) {
+  if (!effectiveWallet) {
     return (
       <button
         className={`action-card${centered ? " centered" : ""}`}
@@ -93,7 +112,6 @@ export function WalletButton({ onClick, centered = false }: WalletButtonProps) {
     );
   }
 
-  // Connected - show wallet icon, balance, and address
   return (
     <button
       className={`action-card wallet-connected${centered ? " centered" : ""}`}
@@ -102,7 +120,7 @@ export function WalletButton({ onClick, centered = false }: WalletButtonProps) {
     >
       <div className="wallet-button-content">
         <div className="wallet-icon">
-          {wallet.icon && <img src={wallet.icon} alt="wallet" />}
+          {effectiveWallet.icon && <img src={effectiveWallet.icon} alt="wallet" />}
         </div>
         <div className="wallet-info">
           <span className="wallet-balance">{balance ? `${balance} CKB` : "-- CKB"}</span>

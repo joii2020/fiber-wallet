@@ -15,7 +15,7 @@ const DIP_HEADERS = {
 } as const;
 
 const DIP_URLS = ["/dip.html"] as const;
-const COOP_COEP_URLS = ["/coop.html"] as const;
+const COOP_COEP_URLS = ["/coop.html", "/joyid.html"] as const;
 
 const matchesUrl = (url: string, patterns: readonly string[]): boolean =>
   patterns.some(pattern => url === pattern || url.startsWith(`${pattern}?`));
@@ -107,7 +107,8 @@ export default defineConfig({
       input: {
         wallet: resolve(__dirname, "index.html"),
         dip: resolve(__dirname, "dip.html"),
-        coop: resolve(__dirname, "coop.html")
+        coop: resolve(__dirname, "coop.html"),
+        joyid: resolve(__dirname, "joyid.html")
       }
     }
   }
