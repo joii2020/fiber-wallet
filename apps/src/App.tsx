@@ -115,6 +115,7 @@ const PAYMENT_HASH_HEX_SEARCH_REGEX = /0x[0-9a-fA-F]{64}/;
 const INVOICE_SEARCH_REGEX = /(fib[bdt][a-z0-9]*1[023456789acdefghjklmnpqrstuvwxyz]+)/i;
 const INVISIBLE_SPACES_REGEX = /[\s\u200B-\u200D\uFEFF]/g;
 const JOYID_PENDING_FUNDING_STORAGE_KEY = "fiber-wallet:joyid-pending-funding";
+const JOYID_PENDING_FUNDING_MAX_AGE_MS = 10 * 60 * 1000;
 const JOYID_SECP256R1_HEX_BYTES = 64;
 const JOYID_SECP256R1_SCALAR_HEX_BYTES = 32;
 
@@ -452,6 +453,25 @@ const clearPendingJoyIdFunding = (): void => {
   localStorage.removeItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
 };
 
+const getPendingJoyIdFundingError = (
+  pending: PendingJoyIdFunding | null,
+  state: JoyIdRedirectState | undefined
+): string | null => {
+  if (state?.kind !== "sign-funding") {
+    return "Missing JoyID funding redirect state";
+  }
+  if (!pending) {
+    return "Missing pending JoyID funding request";
+  }
+  if (Date.now() - pending.createdAt > JOYID_PENDING_FUNDING_MAX_AGE_MS) {
+    return "Pending JoyID funding request expired";
+  }
+  if (pending.channelId !== state.channelId || pending.peerId !== state.peerId) {
+    return "JoyID funding redirect does not match the pending channel";
+  }
+  return null;
+};
+
 const buildPayInvoiceInfo = (
   targetValue: string,
   invoice: Awaited<ReturnType<typeof fiber.parseInvoice>>["invoice"]
@@ -667,7 +687,7 @@ export function App() {
           setFiberStatus("error");
           setActivity(
             error instanceof FiberWasmRuntimeError
-              ? "Fiber requires SharedArrayBuffer. Open the isolated entry page and reload."
+              ? error.message
               : `Failed to initialize fiber: ${getErrorMessage(error)}`
           );
         }
@@ -711,9 +731,7 @@ export function App() {
           (AuthResponseData | SignMessageResponseData) & { state?: JoyIdRedirectState }
         >();
         cleanupJoyIdRedirectParams();
-        const pending = loadPendingJoyIdFunding();
         const isFundingSignatureResponse =
-          pending !== null &&
           "signature" in response &&
           typeof response.signature === "string" &&
           "message" in response &&
@@ -723,6 +741,14 @@ export function App() {
 
         if (isFundingSignatureResponse) {
           const signResponse = response as SignMessageResponseData & { state?: JoyIdRedirectState };
+          const loadedPending = loadPendingJoyIdFunding();
+          const pendingFundingError = getPendingJoyIdFundingError(loadedPending, signResponse.state);
+          if (pendingFundingError) {
+            clearPendingJoyIdFunding();
+            throw new Error(pendingFundingError);
+          }
+          const pending = loadedPending as PendingJoyIdFunding;
+
           console.log("[joyid] raw redirect signing payload", {
             pubkeyType: typeof signResponse.pubkey,
             signatureType: typeof signResponse.signature,
@@ -1708,12 +1734,6 @@ export function App() {
             ))}
           </div>
 
-          <div className="modal-actions">
-            <button className="secondary" onClick={closeModal} type="button">
-              Close
-            </button>
-          </div>
-
           {createChannelOpen && (
             <div className="nested-overlay">
               <div className="nested-modal">
@@ -1738,9 +1758,6 @@ export function App() {
                     />
                   </label>
                   <div className="modal-actions">
-                    <button className="secondary" onClick={resetCreateChannelState} type="button">
-                      Cancel
-                    </button>
                     <button
                       type="submit"
                       disabled={!canCreateChannel || !peerIdInput.trim() || isPreparingChannelSigner}
