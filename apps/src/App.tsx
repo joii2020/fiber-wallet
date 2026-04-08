@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ccc as cccConnector, stringify } from "@ckb-ccc/connector-react";
 import { ccc } from "@ckb-ccc/ccc";
 import {
@@ -18,6 +18,11 @@ import {
   type OpenChannelWithExternalFundingCompatParams
 } from "./shared";
 import { WalletButton } from "./components/WalletButton";
+import { ActionCard } from "./components/ui";
+import { PayModal } from "./components/PayModal";
+import { ReceiveModal } from "./components/ReceiveModal";
+import { ChannelsModal } from "./components/ChannelsModal";
+import { JoyIdWalletModal } from "./components/JoyIdWalletModal";
 import { FiberWasmRuntimeError, fiber, fiberReady } from "./services/fiber-wasm";
 import { truncateAddress } from "./utils/stringUtils";
 import { DEFAULT_CHANNEL_PEER_ADDRESS } from "./config";
@@ -1603,281 +1608,70 @@ export function App() {
       </section>
 
       {activeModal === "pay" && (
-        <Modal title="Pay" onClose={closeModal}>
-          {payStep === "input" ? (
-            <>
-              <label className="field">
-                <span>Invoice / Payment Hash</span>
-                <input
-                  value={payId}
-                  onChange={(event) => setPayId(event.target.value)}
-                  placeholder="Enter invoice or 0x... payment hash"
-                />
-              </label>
-              <div className="modal-actions">
-                <button className="secondary" onClick={closeModal} type="button">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void handlePayLookup()}
-                  type="button"
-                  disabled={!payId.trim() || isPayLookupLoading}
-                >
-                  {isPayLookupLoading ? "Loading..." : "Confirm"}
-                </button>
-              </div>
-              {payLookupError && <p className="error-text">{payLookupError}</p>}
-            </>
-          ) : (
-            <>
-              <div className="box">
-                <span className="subtle">Amount</span>
-                <strong>{payAmount === null ? "--" : formatCkb(payAmount)}</strong>
-                <p className="subtle">Currency: {payInvoiceInfo?.currency ?? "--"}</p>
-                <p className="subtle">Invoice Address: {payInvoiceInfo?.invoiceAddress ?? "--"}</p>
-                <p className="subtle">Payment Hash: {payInvoiceInfo?.paymentHash ?? "--"}</p>
-                <p className="subtle">Expiry: {payInvoiceInfo?.expiry ?? "--"}</p>
-                <p className="subtle">Description: {payInvoiceInfo?.description ?? "--"}</p>
-                <p>Confirm to send this payment.</p>
-              </div>
-              <div className="modal-actions">
-                <button className="secondary" onClick={resetPayState} type="button">
-                  Cancel
-                </button>
-                <button onClick={() => void handlePayConfirm()} type="button" disabled={isPaySubmitting}>
-                  {isPaySubmitting ? "Paying..." : "Confirm Payment"}
-                </button>
-              </div>
-              {payLookupError && <p className="error-text">{payLookupError}</p>}
-            </>
-          )}
-        </Modal>
+        <PayModal
+          payStep={payStep}
+          payId={payId}
+          payAmount={payAmount}
+          payInvoiceInfo={payInvoiceInfo}
+          payLookupError={payLookupError}
+          isPayLookupLoading={isPayLookupLoading}
+          isPaySubmitting={isPaySubmitting}
+          formatCkb={formatCkb}
+          onPayIdChange={setPayId}
+          onLookup={() => void handlePayLookup()}
+          onClose={closeModal}
+          onReset={resetPayState}
+          onConfirm={() => void handlePayConfirm()}
+        />
       )}
 
       {activeModal === "receive" && (
-        <Modal title="Receive" onClose={closeModal}>
-          <>
-            {(receiveStep === "creating" || receiveStep === "waiting") && (
-              <div className="wait-box">
-                <div className="spinner" aria-hidden="true" />
-                <span>{receiveStep === "creating" ? "Creating invoice" : "Waiting for payment"}</span>
-              </div>
-            )}
-            {receiveInvoiceAddress && (
-              <div className="box">
-                <span className="subtle">Invoice Address</span>
-                <div className="copy-row">
-                  <strong className="truncate-line" title={receiveInvoiceAddress}>
-                    {receiveInvoiceAddress}
-                  </strong>
-                  <button className="secondary" onClick={() => void handleCopyReceiveInvoice()} type="button">
-                    Copy
-                  </button>
-                </div>
-              </div>
-            )}
-            {receiveCopyStatus && <p className="subtle">{receiveCopyStatus}</p>}
-            {receiveInvoiceStatus && <p className="subtle">Status: {receiveInvoiceStatus}</p>}
-            {receiveStep === "paid" && <p className="success-text">Payment received successfully.</p>}
-            {receiveError && <p className="error-text">{receiveError}</p>}
-            <div className="modal-actions">
-              <button className="secondary" onClick={closeModal} type="button">
-                Close
-              </button>
-            </div>
-          </>
-        </Modal>
+        <ReceiveModal
+          receiveStep={receiveStep}
+          receiveInvoiceAddress={receiveInvoiceAddress}
+          receiveInvoiceStatus={receiveInvoiceStatus}
+          receiveError={receiveError}
+          receiveCopyStatus={receiveCopyStatus}
+          onCopy={() => void handleCopyReceiveInvoice()}
+          onClose={closeModal}
+        />
       )}
 
       {activeModal === "channels" && (
-        <Modal title="Channels" onClose={closeModal}>
-          <div className="channel-toolbar">
-            <button
-              onClick={() => setCreateChannelOpen(true)}
-              type="button"
-              disabled={!canCreateChannel}
-              title={createChannelDisabledReason}
-            >
-              Create Channel
-            </button>
-            <div className="toolbar-actions">
-              <button
-                onClick={() => void refreshChannels()}
-                type="button"
-                disabled={isLoadingChannels}
-                className="icon-button"
-                title="Refresh channels"
-              >
-                <span className={isLoadingChannels ? "refresh-icon spinning" : "refresh-icon"} aria-hidden="true">
-                  {isLoadingChannels ? "⟳" : "↻"}
-                </span>
-              </button>
-              <span className="subtle">{channelCount} open</span>
-            </div>
-          </div>
-
-          <div className="list">
-            {channels.length === 0 && <p className="subtle">No channels.</p>}
-            {channels.map((channel) => (
-              <article className="channel-item" key={channel.id}>
-                <div>
-                  <strong title={channel.id}>{channel.id.slice(0, 16)}...</strong>
-                  <p className="subtle">{formatCkb(channel.balance)}</p>
-                </div>
-                <div className="channel-actions">
-                  <span className={`status-pill ${channel.status}`}>{channel.statusLabel}</span>
-                  <button className="secondary" onClick={() => void handleCloseChannel(channel.id)} type="button">
-                    Close
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          {createChannelOpen && (
-            <div className="nested-overlay">
-              <div className="nested-modal">
-                <div className="modal-head">
-                  <h3>Create Channel</h3>
-                  <button className="icon-button" onClick={() => setCreateChannelOpen(false)} type="button">
-                    ×
-                  </button>
-                </div>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleCreateChannel();
-                  }}
-                >
-                  <label className="field">
-                    <span>Peer ID (with IP and Port)</span>
-                    <input
-                      value={peerIdInput}
-                      onChange={(event) => setPeerIdInput(event.target.value)}
-                      placeholder={DEFAULT_CHANNEL_PEER_ADDRESS}
-                    />
-                  </label>
-                  <div className="modal-actions">
-                    <button
-                      type="submit"
-                      disabled={!canCreateChannel || !peerIdInput.trim() || isPreparingChannelSigner}
-                      title={createChannelDisabledReason}
-                    >
-                      {isPreparingChannelSigner ? "Preparing..." : "Create"}
-                    </button>
-                  </div>
-                </form>
-
-                {channelSignerSelectorOpen && (
-                  <div className="nested-overlay">
-                    <div className="nested-modal">
-                      <div className="modal-head">
-                        <h3>Select Wallet</h3>
-                        <button className="icon-button" onClick={resetCreateChannelState} type="button">
-                          ×
-                        </button>
-                      </div>
-                      <div className="wallet-picker-list">
-                        {availableChannelSigners.map((info) => (
-                          <button
-                            key={info.id}
-                            className="wallet-picker-item"
-                            onClick={() => void handleChannelSignerSelected(info)}
-                            type="button"
-                            disabled={isPreparingChannelSigner}
-                          >
-                            <strong>{info.walletName}</strong>
-                            <span>{info.signerName}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </Modal>
+        <ChannelsModal
+          channels={channels}
+          channelCount={channelCount}
+          canCreateChannel={canCreateChannel}
+          createChannelDisabledReason={createChannelDisabledReason}
+          isLoadingChannels={isLoadingChannels}
+          createChannelOpen={createChannelOpen}
+          peerIdInput={peerIdInput}
+          isPreparingChannelSigner={isPreparingChannelSigner}
+          channelSignerSelectorOpen={channelSignerSelectorOpen}
+          availableChannelSigners={availableChannelSigners}
+          formatCkb={formatCkb}
+          placeholderPeerAddress={DEFAULT_CHANNEL_PEER_ADDRESS}
+          onClose={closeModal}
+          onOpenCreateChannel={() => setCreateChannelOpen(true)}
+          onCloseCreateChannel={() => setCreateChannelOpen(false)}
+          onRefreshChannels={() => void refreshChannels()}
+          onPeerIdInputChange={setPeerIdInput}
+          onCreateChannel={() => void handleCreateChannel()}
+          onResetCreateChannelState={resetCreateChannelState}
+          onSelectChannelSigner={(info) => void handleChannelSignerSelected(info)}
+          onCloseChannel={(id) => void handleCloseChannel(id)}
+        />
       )}
 
       {joyIdOnlyMode && joyIdWalletPanelOpen && (
-        <Modal title="Wallet" onClose={() => setJoyIdWalletPanelOpen(false)}>
-          {isLoadingJoyIdWalletPanel ? (
-            <div className="wait-box">
-              <div className="spinner" aria-hidden="true" />
-              <span>Loading wallet</span>
-            </div>
-          ) : (
-            <>
-              <div className="box">
-                <span className="subtle">Address</span>
-                <strong>
-                  {joyIdWalletPanelInfo
-                    ? truncateAddress(joyIdWalletPanelInfo.address, 10, 8)
-                    : "--"}
-                </strong>
-                <p className="subtle">{joyIdWalletPanelInfo?.balance ?? "--"} CKB</p>
-                <p className="subtle">
-                  {joyIdWalletPanelInfo
-                    ? truncateAddress(joyIdWalletPanelInfo.internalAddress, 12, 10)
-                    : "--"}
-                </p>
-              </div>
-              <div className="modal-actions">
-                <button
-                  onClick={() => window.open("https://mobit.app/", "_blank", "noopener,noreferrer")}
-                  type="button"
-                >
-                  Manage
-                </button>
-                <button className="secondary" onClick={() => void handleDisconnectJoyId()} type="button">
-                  Disconnect
-                </button>
-              </div>
-              <p className="subtle">Network: Testnet</p>
-            </>
-          )}
-        </Modal>
+        <JoyIdWalletModal
+          isLoading={isLoadingJoyIdWalletPanel}
+          walletInfo={joyIdWalletPanelInfo}
+          onClose={() => setJoyIdWalletPanelOpen(false)}
+          onManage={() => window.open("https://mobit.app/", "_blank", "noopener,noreferrer")}
+          onDisconnect={() => void handleDisconnectJoyId()}
+        />
       )}
     </main>
-  );
-}
-
-type ActionCardProps = {
-  title: string;
-  meta?: string;
-  disabled?: boolean;
-  onClick: () => void;
-  centered?: boolean;
-};
-
-function ActionCard({ title, meta, disabled, onClick, centered }: ActionCardProps) {
-  return (
-    <button className={`action-card${centered ? " centered" : ""}`} disabled={disabled} onClick={onClick} type="button">
-      <strong>{title}</strong>
-      {meta && <span>{meta}</span>}
-    </button>
-  );
-}
-
-type ModalProps = {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-};
-
-function Modal({ title, onClose, children }: ModalProps) {
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-card">
-        <div className="modal-head">
-          <h3>{title}</h3>
-          <button className="icon-button" onClick={onClose} type="button">
-            ×
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
-      </div>
-    </div>
   );
 }
