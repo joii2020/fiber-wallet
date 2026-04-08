@@ -418,6 +418,10 @@ export class FiberWasmManager {
     });
   }
 
+  getFiberInstance(): Fiber | null {
+    return this.fiber;
+  }
+
   private assertStarted(): Fiber {
     if (!this.fiber) {
       throw new Error("Fiber node not initialized. Please click Init Fiber Node first.");

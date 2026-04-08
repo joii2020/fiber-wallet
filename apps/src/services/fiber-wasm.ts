@@ -1,3 +1,4 @@
+import type { Fiber } from "@nervosnetwork/fiber-js";
 import { FiberWasmManager } from "../shared";
 import { Buffer } from "buffer/";
 import {
@@ -5,6 +6,13 @@ import {
   DEFAULT_FIBER_DATABASE_PREFIX,
   DEFAULT_FIBER_SECRET_STORAGE_KEY
 } from "../config";
+
+declare global {
+  interface Window {
+    fiber?: Fiber;
+    fiberReady: Promise<void>;
+  }
+}
 
 export class FiberWasmRuntimeError extends Error {
   constructor(message: string) {
@@ -105,3 +113,14 @@ const startWasmFiber = async (): Promise<void> => {
 };
 
 export const fiberReady = startWasmFiber();
+
+if (typeof window !== "undefined") {
+  window.fiberReady = fiberReady;
+  void fiberReady.then(() => {
+    const fiberInstance = fiber.getFiberInstance();
+    if (!fiberInstance) {
+      throw new Error("[fiber-wasm] Fiber instance is unavailable after startup");
+    }
+    window.fiber = fiberInstance;
+  });
+}
