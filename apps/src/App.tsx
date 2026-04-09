@@ -41,6 +41,7 @@ type Channel = {
   status: ChannelStatus;
   statusLabel: string;
   balance: number;
+  isReady: boolean;
   rawStateName?: string;
 };
 type PendingCreatedChannel = {
@@ -353,6 +354,7 @@ const convertFiberChannels = (fiberChannels: FiberChannel[]): Channel[] =>
       status: getChannelStatusTone(rawStateName),
       statusLabel: rawStateName || "Unknown",
       balance: Number(localBalance) / 100_000_000,
+      isReady: isCreatedChannelReady(rawStateName),
       rawStateName
     };
   });
@@ -999,7 +1001,7 @@ export function App() {
   const canCreateChannel = fiberStatus === "running";
   const createChannelDisabledReason = canCreateChannel ? undefined : "Fiber node is not ready yet";
   const totalChannelBalance = useMemo(
-    () => channels.reduce((sum, channel) => sum + channel.balance, 0),
+    () => channels.reduce((sum, channel) => (channel.isReady ? sum + channel.balance : sum), 0),
     [channels]
   );
 
