@@ -1,4 +1,4 @@
-import { truncateAddress } from "../utils/stringUtils";
+import { truncateAddress } from "../wallet/manager";
 import { Modal } from "./ui";
 
 type JoyIdWalletPanelInfo = {

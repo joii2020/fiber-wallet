@@ -5,31 +5,67 @@ import {
   signMessageWithRedirect,
   type AuthResponseData,
   type CKBTransaction as JoyIdCkbTransaction,
-  type SignMessageRequest
+  type SignMessageRequest,
+  type SignMessageResponseData
 } from "@joyid/common";
 import { calculateChallenge } from "@joyid/ckb";
-import { toFiberCellDep } from "./fiber-wasm";
+import { toFiberCellDep } from "../fiber/client";
 import { toCccTransaction } from "./transaction";
+
+const JOYID_PENDING_FUNDING_STORAGE_KEY = "fiber-wallet:joyid-pending-funding";
+const JOYID_PENDING_FUNDING_MAX_AGE_MS = 10 * 60 * 1000;
+const JOYID_SECP256R1_HEX_BYTES = 64;
+const JOYID_SECP256R1_SCALAR_HEX_BYTES = 32;
+
+type FundingSignerSupport = {
+  supported: boolean;
+  reason?: string;
+};
+
+type JoyIdConnection = {
+  address: string;
+  publicKey: string;
+  keyType: string;
+};
+
+export type JoyIdRedirectState =
+  | { kind: "connect"; timestamp: number }
+  | { kind: "sign-funding"; channelId: string; peerId: string; timestamp: number };
+
+export type PendingJoyIdFunding = {
+  channelId: string;
+  peerId: string;
+  unsignedFundingTx: CkbJsonRpcTransaction;
+  joyIdTx: JoyIdCkbTransaction;
+  witnessIndexes: number[];
+  fundingAmount: string;
+  createdAt: number;
+};
+
+export type JoyIdWalletPanelInfo = {
+  address: string;
+  internalAddress: string;
+  balance: string;
+};
+
+export function truncateAddress(address: string, startChars = 8, endChars = 6): string {
+  if (!address || address.length <= startChars + endChars + 3) {
+    return address;
+  }
+  return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+export const formatCkb = (value: number): string => `${value.toFixed(2)} CKB`;
 
 /**
  * Prepare witness for OmniLock signing by adjusting the placeholder format.
  * Fiber generates witnesses with 174-byte placeholders for secp256k1 signatures,
  * but OmniLock expects 85-byte placeholders.
  */
-const prepareOmniLockWitness = (
-  tx: ccc.Transaction,
-  lockScript: ccc.Script
-): void => {
-  // OmniLock requires 85 bytes for the lock field:
-  // - 4 bytes: identity auth flags
-  // - 4 bytes: identity source
-  // - 4 bytes: identity args len
-  // - 4 bytes: signature len offset
-  // - 4 bytes: signature len
-  // - 65 bytes: signature (max size for BTC)
+const prepareOmniLockWitness = (tx: ccc.Transaction, lockScript: ccc.Script): void => {
   const OMNI_LOCK_WITNESS_LOCK_LEN = 85;
 
-  for (let i = 0; i < tx.inputs.length; i++) {
+  for (let i = 0; i < tx.inputs.length; i += 1) {
     const input = tx.inputs[i];
     if (!input.cellOutput) {
       continue;
@@ -38,44 +74,155 @@ const prepareOmniLockWitness = (
       continue;
     }
 
-    // Get or create witness args at this position
     let witnessArgs = tx.getWitnessArgsAt(i);
     if (!witnessArgs) {
       witnessArgs = ccc.WitnessArgs.from({});
     }
 
-    // Set lock to OmniLock placeholder size (85 bytes of zeros)
-    witnessArgs.lock = ccc.hexFrom(
-      new Uint8Array(OMNI_LOCK_WITNESS_LOCK_LEN).fill(0)
-    );
+    witnessArgs.lock = ccc.hexFrom(new Uint8Array(OMNI_LOCK_WITNESS_LOCK_LEN).fill(0));
     tx.setWitnessArgsAt(i, witnessArgs);
   }
 };
 
-export type CkbSignerInfo = {
-  id: string;
-  label: string;
-  walletName: string;
-  walletIcon: string;
-  signerName: string;
-  signer: ccc.Signer;
+const utf8ToHex = (value: string): string =>
+  Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const trimLeadingZeroBytes = (hex: string): string => {
+  let normalized = hex.replace(/^0x/i, "");
+  while (normalized.length > 2 && normalized.startsWith("00")) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
 };
 
-type FundingSignerSupport = {
-  supported: boolean;
-  reason?: string;
+const normalizeFixedWidthHex = (hex: string, expectedBytes: number): string => {
+  const expectedLength = expectedBytes * 2;
+  let normalized = trimLeadingZeroBytes(hex);
+  if (normalized.length > expectedLength) {
+    throw new Error(`JoyID returned an oversized signing field (${normalized.length} hex chars)`);
+  }
+  if (normalized.length % 2 === 1) {
+    normalized = `0${normalized}`;
+  }
+  return normalized.padStart(expectedLength, "0").toLowerCase();
 };
 
-export type CccWalletManagerOptions = {
-  client?: ccc.Client;
-  appName?: string;
-  appIcon?: string;
+const derSignatureHexToP1363 = (hex: string): string | null => {
+  const normalized = hex.replace(/^0x/i, "").toLowerCase();
+  if (!normalized.startsWith("30")) {
+    return null;
+  }
+
+  const bytes = Uint8Array.from(
+    normalized.match(/../g) ?? [],
+    (byte) => Number.parseInt(byte, 16)
+  );
+  if (bytes.length < 8 || bytes[0] !== 0x30) {
+    return null;
+  }
+
+  let offset = 1;
+  const readLength = (): number => {
+    const first = bytes[offset++];
+    if (first === undefined) {
+      throw new Error("Invalid DER signature length");
+    }
+    if ((first & 0x80) === 0) {
+      return first;
+    }
+    const count = first & 0x7f;
+    if (count === 0 || count > 4) {
+      throw new Error("Unsupported DER signature length encoding");
+    }
+    let value = 0;
+    for (let i = 0; i < count; i += 1) {
+      const next = bytes[offset++];
+      if (next === undefined) {
+        throw new Error("Truncated DER signature length");
+      }
+      value = (value << 8) | next;
+    }
+    return value;
+  };
+
+  try {
+    const sequenceLength = readLength();
+    if (offset + sequenceLength !== bytes.length) {
+      return null;
+    }
+    if (bytes[offset++] !== 0x02) {
+      return null;
+    }
+    const rLength = readLength();
+    const r = bytes.slice(offset, offset + rLength);
+    offset += rLength;
+    if (bytes[offset++] !== 0x02) {
+      return null;
+    }
+    const sLength = readLength();
+    const s = bytes.slice(offset, offset + sLength);
+    offset += sLength;
+    if (offset !== bytes.length) {
+      return null;
+    }
+
+    return `${normalizeFixedWidthHex(bytesToHex(r), JOYID_SECP256R1_SCALAR_HEX_BYTES)}${normalizeFixedWidthHex(bytesToHex(s), JOYID_SECP256R1_SCALAR_HEX_BYTES)}`;
+  } catch {
+    return null;
+  }
 };
 
-type JoyIdConnection = {
-  address: string;
-  publicKey: string;
-  keyType: string;
+const decodeBase64LikeToHex = (value: string): string | null => {
+  const normalized = value.trim().replace(/-/g, "+").replace(/_/g, "/");
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    return null;
+  }
+
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  try {
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return bytesToHex(bytes);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeHexForWitness = (
+  value: string,
+  field: "pubkey" | "signature" | "message",
+  expectedBytes?: number
+): string => {
+  let normalized = value.trim().replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]*$/.test(normalized)) {
+    const decodedBase64 = decodeBase64LikeToHex(value);
+    if (decodedBase64 !== null) {
+      normalized = decodedBase64;
+    } else if (field === "message") {
+      normalized = utf8ToHex(value);
+    } else {
+      throw new Error(`JoyID returned a non-hex ${field}`);
+    }
+  }
+
+  if (normalized.length % 2 === 1) {
+    normalized = `0${normalized}`;
+  }
+
+  if (expectedBytes !== undefined) {
+    if (field === "signature") {
+      const maybeDerSignature = derSignatureHexToP1363(normalized);
+      if (maybeDerSignature !== null) {
+        return maybeDerSignature;
+      }
+    }
+    normalized = normalizeFixedWidthHex(normalized, expectedBytes);
+  }
+
+  return normalized.toLowerCase();
 };
 
 const DEFAULT_APP_ICON =
@@ -128,6 +275,21 @@ const supportsLockScript = (
   }
 };
 
+export type CkbSignerInfo = {
+  id: string;
+  label: string;
+  walletName: string;
+  walletIcon: string;
+  signerName: string;
+  signer: ccc.Signer;
+};
+
+export type CccWalletManagerOptions = {
+  client?: ccc.Client;
+  appName?: string;
+  appIcon?: string;
+};
+
 export const withFundingTxWitnesses = (
   fundingTx: CkbJsonRpcTransaction,
   witnesses: string[]
@@ -139,7 +301,6 @@ export const withFundingTxWitnesses = (
   };
 
   return {
-    // External funding submit only accepts signature/witness updates.
     version: tx.version,
     cell_deps: tx.cell_deps ?? tx.cellDeps ?? [],
     header_deps: tx.header_deps ?? tx.headerDeps ?? [],
@@ -149,6 +310,70 @@ export const withFundingTxWitnesses = (
     witnesses: witnesses.map((witness) => witness as `0x${string}`)
   };
 };
+
+export const getCleanCurrentUrl = (): string => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("_data_");
+  url.searchParams.delete("joyid-redirect");
+  return url.toString();
+};
+
+export const cleanupJoyIdRedirectParams = (): void => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("_data_");
+  url.searchParams.delete("joyid-redirect");
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+};
+
+export const loadPendingJoyIdFunding = (): PendingJoyIdFunding | null => {
+  const raw = localStorage.getItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as PendingJoyIdFunding;
+  } catch {
+    localStorage.removeItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+    return null;
+  }
+};
+
+export const savePendingJoyIdFunding = (pending: PendingJoyIdFunding): void => {
+  localStorage.setItem(JOYID_PENDING_FUNDING_STORAGE_KEY, JSON.stringify(pending));
+};
+
+export const clearPendingJoyIdFunding = (): void => {
+  localStorage.removeItem(JOYID_PENDING_FUNDING_STORAGE_KEY);
+};
+
+export const getPendingJoyIdFundingError = (
+  pending: PendingJoyIdFunding | null,
+  state: JoyIdRedirectState | undefined
+): string | null => {
+  if (state?.kind !== "sign-funding") {
+    return "Missing JoyID funding redirect state";
+  }
+  if (!pending) {
+    return "Missing pending JoyID funding request";
+  }
+  if (Date.now() - pending.createdAt > JOYID_PENDING_FUNDING_MAX_AGE_MS) {
+    return "Pending JoyID funding request expired";
+  }
+  if (pending.channelId !== state.channelId || pending.peerId !== state.peerId) {
+    return "JoyID funding redirect does not match the pending channel";
+  }
+  return null;
+};
+
+export const normalizeJoyIdSignResponse = (
+  response: SignMessageResponseData
+): SignMessageResponseData => ({
+  ...response,
+  pubkey: normalizeHexForWitness(response.pubkey, "pubkey", JOYID_SECP256R1_HEX_BYTES),
+  signature: normalizeHexForWitness(response.signature, "signature", JOYID_SECP256R1_HEX_BYTES),
+  message: normalizeHexForWitness(response.message, "message")
+});
 
 export class CccWalletManager {
   private readonly signersController = new ccc.SignersController();
@@ -311,8 +536,18 @@ export class CccWalletManager {
     return { signer, address };
   }
 
-  async signMessage(signer: ccc.Signer, message: string): Promise<ccc.Signature> {
-    return signer.signMessage(message);
+  async loadJoyIdWalletInfo(signer: ccc.Signer): Promise<JoyIdWalletPanelInfo> {
+    const [address, internalAddress, balance] = await Promise.all([
+      signer.getRecommendedAddress(),
+      signer.getInternalAddress(),
+      signer.getBalance()
+    ]);
+
+    return {
+      address,
+      internalAddress,
+      balance: ccc.fixedPointToString(balance)
+    };
   }
 
   async signFundingTx(
@@ -329,7 +564,6 @@ export class CccWalletManager {
     const addressObj = await signer.getRecommendedAddressObj();
     const lockScript = ccc.Script.from(addressObj.script);
 
-    // Check if this is an OmniLock signer (BTC, DOGE, or EVM)
     const omniLockScriptInfo = await signer.client.getKnownScript(ccc.KnownScript.OmniLock);
     const isOmniLock =
       signer.type === ccc.SignerType.BTC ||
@@ -338,9 +572,6 @@ export class CccWalletManager {
         omniLockScriptInfo.codeHash === lockScript.codeHash);
 
     if (isOmniLock) {
-      // For OmniLock signers, we need to adjust the witness placeholder format
-      // because Fiber generates placeholders for secp256k1 (174 bytes),
-      // but OmniLock expects a different format (85 bytes).
       await Promise.all(
         cccTx.inputs.map(async (input) => {
           await input.completeExtraInfos(this.client);

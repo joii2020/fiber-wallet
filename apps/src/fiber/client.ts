@@ -1,19 +1,20 @@
+import { stringify } from "@ckb-ccc/connector-react";
 import { Fiber, randomSecretKey } from "@nervosnetwork/fiber-js";
 import type {
   CkbJsonRpcTransaction,
   Channel,
-  GetPaymentCommandParams,
   GetInvoiceResult,
+  GetPaymentCommandParams,
   GetPaymentCommandResult,
-  InvoiceResult,
   InvoiceParams,
+  InvoiceResult,
   NewInvoiceParams,
   ParseInvoiceResult,
-  SendPaymentCommandParams,
-  Script
+  Script,
+  SendPaymentCommandParams
 } from "@nervosnetwork/fiber-js";
-import { getFiberConfig } from "./fiber-config";
-import { stringify } from "@ckb-ccc/connector-react";
+import { getFiberConfig } from "./config";
+import type { ChannelStatus, ChannelSummary, PayInvoiceInfo } from "./types";
 
 type RelayInfo = {
   address: string;
@@ -61,9 +62,13 @@ type FiberCompat = Fiber & {
   ): Promise<OpenChannelWithExternalFundingCompatResult>;
 };
 
-const CKB_SHANNONS = 100000000n;
-// Match Fiber's source behavior: peer init timeout is 20s, so keep retrying
-// a bit longer than that before surfacing an error to the user.
+type FiberClientOptions = {
+  configPath?: string;
+  secretStorageKey?: string;
+  databasePrefix?: string;
+  logLevel?: "trace" | "debug" | "info" | "error";
+};
+
 const OPEN_CHANNEL_INIT_RETRY_ATTEMPTS = 80;
 const OPEN_CHANNEL_INIT_RETRY_INTERVAL_MS = 300;
 const SUBMIT_SIGNED_FUNDING_TX_RETRY_ATTEMPTS = 30;
@@ -71,13 +76,11 @@ const SUBMIT_SIGNED_FUNDING_TX_RETRY_INTERVAL_MS = 500;
 
 const isHex32 = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
 
-const parsePeerId = (address: string): string => {
-  return address.trim().match(/\/p2p\/([^/]+)(?:\/|$)/)?.[1] ?? "";
-};
+const parsePeerId = (address: string): string => address.trim().match(/\/p2p\/([^/]+)(?:\/|$)/)?.[1] ?? "";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const getErrorMessage = (error: unknown): string => {
+export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
@@ -135,24 +138,36 @@ const getOrCreateFiberSecret = (storageKey: string): Uint8Array => {
   return generated;
 };
 
-const ckbToShannonsHex = (amountCkb: string): `0x${string}` => {
-  const trimmed = amountCkb.trim();
-  if (!trimmed) {
-    throw new Error("Funding amount is required");
+const toRpcHexNumber = (value: string | number | bigint): `0x${string}` => {
+  if (typeof value === "string") {
+    return (value.startsWith("0x") ? value : `0x${BigInt(value).toString(16)}`) as `0x${string}`;
   }
+  return `0x${BigInt(value).toString(16)}`;
+};
 
-  const [whole, frac = ""] = trimmed.split(".");
-  if (!/^\d+$/.test(whole) || !/^\d*$/.test(frac)) {
-    throw new Error("Funding amount must be a decimal number");
+const parseHexToBigInt = (value?: string): bigint | null => {
+  if (!value) {
+    return null;
   }
-
-  const fracPadded = (frac + "00000000").slice(0, 8);
-  const shannons = BigInt(whole || "0") * CKB_SHANNONS + BigInt(fracPadded || "0");
-  if (shannons <= 0n) {
-    throw new Error("Funding amount must be greater than 0");
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
   }
+};
 
-  return `0x${shannons.toString(16)}`;
+const hexShannonsToCkb = (value?: string): number | null => {
+  const amount = parseHexToBigInt(value);
+  return amount === null ? null : Number(amount) / 100_000_000;
+};
+
+const readInvoiceAttr = (attrs: Array<Record<string, unknown>>, key: string): string => {
+  const matched = attrs.find((attr) => key in attr);
+  if (!matched) {
+    return "--";
+  }
+  const value = matched[key];
+  return typeof value === "string" ? value : String(value);
 };
 
 export const toFiberScript = (script: {
@@ -164,13 +179,6 @@ export const toFiberScript = (script: {
   hash_type: script.hashType as "data" | "type" | "data1" | "data2",
   args: script.args as `0x${string}`
 });
-
-const toRpcHexNumber = (value: string | number | bigint): `0x${string}` => {
-  if (typeof value === "string") {
-    return (value.startsWith("0x") ? value : `0x${BigInt(value).toString(16)}`) as `0x${string}`;
-  }
-  return `0x${BigInt(value).toString(16)}`;
-};
 
 export const toFiberCellDep = (cellDep: {
   depType: string;
@@ -192,21 +200,109 @@ export const toFiberCellDep = (cellDep: {
   }
 });
 
-type FiberWasmManagerOptions = {
-  configPath?: string;
-  secretStorageKey?: string;
-  databasePrefix?: string;
-  logLevel?: "trace" | "debug" | "info" | "error";
+export const getChannelStatusTone = (stateName?: string): ChannelStatus => {
+  switch (stateName?.toLowerCase()) {
+    case "ready":
+    case "channelready":
+    case "established":
+    case "running":
+      return "good";
+    case "syncing":
+    case "awaiting_tx_signatures":
+    case "awaitingchannelready":
+    case "awaitingtxsignatures":
+    case "collaboratingfundingtx":
+    case "signingcommitment":
+      return "warn";
+    case "awaiting_peer":
+    case "connecting":
+    case "negotiatingfunding":
+      return "idle";
+    case "closed":
+    case "shutting_down":
+      return "error";
+    default:
+      return "idle";
+  }
 };
 
-export class FiberWasmManager {
+export const normalizeChannelStateName = (stateName?: string): string | undefined =>
+  stateName?.trim().toLowerCase();
+
+export const isCreatedChannelReady = (stateName?: string): boolean => {
+  const normalized = normalizeChannelStateName(stateName);
+  return (
+    normalized === "ready" ||
+    normalized === "channelready" ||
+    normalized === "established" ||
+    normalized === "running"
+  );
+};
+
+export const isCreatedChannelCollaborating = (stateName?: string): boolean => {
+  const normalized = normalizeChannelStateName(stateName);
+  return (
+    normalized === "negotiatingfunding" ||
+    normalized === "collaboratingfundingtx" ||
+    normalized === "signingcommitment" ||
+    normalized === "awaitingtxsignatures" ||
+    normalized === "awaitingchannelready"
+  );
+};
+
+export const isCreatedChannelFailed = (stateName?: string): boolean => {
+  const normalized = normalizeChannelStateName(stateName);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "closed" ||
+    normalized === "shutting_down" ||
+    normalized === "shutdown" ||
+    normalized === "failed" ||
+    normalized === "error" ||
+    normalized.includes("fail") ||
+    normalized.includes("error")
+  );
+};
+
+export const toChannelSummary = (channel: Channel): ChannelSummary => {
+  const rawStateName = (channel as { state?: { state_name?: string } }).state?.state_name;
+  const localBalance = BigInt(channel.local_balance || "0x0");
+  return {
+    id: channel.channel_id,
+    status: getChannelStatusTone(rawStateName),
+    statusLabel: rawStateName || "Unknown",
+    balance: Number(localBalance) / 100_000_000,
+    isReady: isCreatedChannelReady(rawStateName),
+    rawStateName
+  };
+};
+
+export const buildPayInvoiceInfo = (
+  targetValue: string,
+  invoice: ParseInvoiceResult["invoice"]
+): PayInvoiceInfo => {
+  const attrs = invoice.data.attrs as unknown as Array<Record<string, unknown>>;
+  return {
+    invoiceAddress: targetValue,
+    paymentHash: invoice.data.payment_hash,
+    currency: invoice.currency,
+    amountCkb: hexShannonsToCkb(invoice.amount),
+    expiry: readInvoiceAttr(attrs, "ExpiryTime"),
+    description: readInvoiceAttr(attrs, "Description")
+  };
+};
+
+export class FiberClient {
   private fiber: Fiber | null = null;
   private readonly configPath: string;
   private readonly secretStorageKey: string;
   private readonly databasePrefix: string;
   private readonly logLevel: "trace" | "debug" | "info" | "error";
 
-  constructor(options: FiberWasmManagerOptions = {}) {
+  constructor(options: FiberClientOptions = {}) {
     this.configPath = options.configPath ?? "/fiber-config-testnet.yml";
     this.secretStorageKey = options.secretStorageKey ?? "fiber-wallet:fiber-secret";
     this.databasePrefix = options.databasePrefix ?? "/wasm-fiber-wallet";
@@ -218,6 +314,7 @@ export class FiberWasmManager {
       console.log("[fiber-wasm] start skipped: already started");
       return;
     }
+
     console.log("[fiber-wasm] loading config", {
       configPath: this.configPath,
       databasePrefix: this.databasePrefix,
@@ -275,13 +372,9 @@ export class FiberWasmManager {
         peerCount: peers.peers.length,
         found: Boolean(found)
       });
-      if (found) {
-        const pubkey = found.pubkey;
-        if (!pubkey) {
-          throw new Error("Connected peer pubkey not found");
-        }
+      if (found?.pubkey) {
         console.log("[fiber-wasm] connectPeer success", info);
-        return pubkey;
+        return found.pubkey;
       }
       await sleep(400);
     }
@@ -290,20 +383,24 @@ export class FiberWasmManager {
     throw new Error("Peer connection timeout");
   }
 
-  async listChannels(): Promise<Channel[]> {
+  async listRawChannels(): Promise<Channel[]> {
     const result = await this.assertStarted().listChannels({});
     return result.channels;
   }
 
-  async getChannelInfo(channelId: string): Promise<Channel | null> {
+  async listChannels(): Promise<ChannelSummary[]> {
+    const fiberChannels = await this.listRawChannels();
+    return fiberChannels.map(toChannelSummary);
+  }
+
+  async getChannelInfo(channelId: string): Promise<ChannelSummary | null> {
     const targetId = channelId.trim().toLowerCase();
     if (!targetId) {
       throw new Error("channelId is required");
     }
 
     const channels = await this.listChannels();
-    const matched = channels.find((channel) => channel.channel_id.toLowerCase() === targetId);
-    return matched ?? null;
+    return channels.find((channel) => channel.id.toLowerCase() === targetId) ?? null;
   }
 
   async parseInvoice(invoice: string): Promise<ParseInvoiceResult> {
@@ -313,11 +410,16 @@ export class FiberWasmManager {
     }
 
     return this.assertStarted().parseInvoice({
-      invoice: trimmed,
+      invoice: trimmed
     });
   }
 
-  async newInvoice(params: NewInvoiceParams): Promise<InvoiceResult> {
+  async lookupInvoice(invoice: string): Promise<PayInvoiceInfo> {
+    const parsed = await this.parseInvoice(invoice);
+    return buildPayInvoiceInfo(invoice.trim(), parsed.invoice);
+  }
+
+  async createInvoice(params: NewInvoiceParams): Promise<InvoiceResult> {
     return this.assertStarted().newInvoice(params);
   }
 
@@ -325,15 +427,29 @@ export class FiberWasmManager {
     return this.assertStarted().getInvoice(params);
   }
 
+  async waitInvoicePaid(
+    paymentHash: `0x${string}`,
+    onTick?: (status: string) => void
+  ): Promise<GetInvoiceResult> {
+    while (true) {
+      const result = await this.getInvoice({ payment_hash: paymentHash });
+      onTick?.(result.status);
+      if (result.status === "Received" || result.status === "Paid") {
+        return result;
+      }
+      await sleep(500);
+    }
+  }
+
   async sendPayment(params: SendPaymentCommandParams): Promise<GetPaymentCommandResult> {
     return this.assertStarted().sendPayment(params);
   }
 
-  async getPayment(params: GetPaymentCommandParams): Promise<GetPaymentCommandResult> {
+  async getPaymentStatus(params: GetPaymentCommandParams): Promise<GetPaymentCommandResult> {
     return this.assertStarted().getPayment(params);
   }
 
-  async openChannelWithExternalFunding(
+  async openChannel(
     params: OpenChannelWithExternalFundingCompatParams
   ): Promise<OpenChannelWithExternalFundingCompatResult> {
     const fiber = this.assertStarted() as FiberCompat;
@@ -371,10 +487,30 @@ export class FiberWasmManager {
     if (!channelId) {
       throw new Error("Missing channel id in openChannelWithExternalFunding result");
     }
+
     return {
       channel_id: channelId,
       unsigned_funding_tx: normalized.unsigned_funding_tx
     };
+  }
+
+  async waitChannelReady(
+    channelId: string,
+    onTick?: (channel: ChannelSummary | null) => Promise<void> | void
+  ): Promise<ChannelSummary | null> {
+    while (true) {
+      const channel = await this.getChannelInfo(channelId);
+      await onTick?.(channel);
+
+      if (!channel) {
+        return null;
+      }
+      if (isCreatedChannelReady(channel.rawStateName) || isCreatedChannelFailed(channel.rawStateName)) {
+        return channel;
+      }
+
+      await sleep(500);
+    }
   }
 
   async submitSignedFundingTx(channelId: string, signedTx: CkbJsonRpcTransaction) {
@@ -412,7 +548,7 @@ export class FiberWasmManager {
     }
   }
 
-  async shutdownChannel(channelId: string) {
+  async closeChannel(channelId: string) {
     return this.assertStarted().shutdownChannel({
       channel_id: channelId as `0x${string}`
     });

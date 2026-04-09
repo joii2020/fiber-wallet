@@ -1,11 +1,11 @@
 import type { Fiber } from "@nervosnetwork/fiber-js";
-import { FiberWasmManager } from "../shared/fiber-wasm";
 import { Buffer } from "buffer/";
 import {
   DEFAULT_FIBER_CONFIG_PATH,
   DEFAULT_FIBER_DATABASE_PREFIX,
   DEFAULT_FIBER_SECRET_STORAGE_KEY
 } from "../config";
+import { FiberClient } from "./client";
 
 declare global {
   interface Window {
@@ -21,7 +21,6 @@ export class FiberWasmRuntimeError extends Error {
   }
 }
 
-// Polyfills for WASM
 if (!("global" in globalThis)) {
   (globalThis as typeof globalThis & { global: typeof globalThis }).global = globalThis;
 }
@@ -87,18 +86,18 @@ const assertFiberRuntimeReady = (): void => {
   throw new FiberWasmRuntimeError(getSharedArrayBufferUnavailableReason());
 };
 
-// Initialize WASM fiber on page load
-export const fiber = new FiberWasmManager({
+export const fiberClient = new FiberClient({
   configPath: DEFAULT_FIBER_CONFIG_PATH,
   secretStorageKey: DEFAULT_FIBER_SECRET_STORAGE_KEY,
   databasePrefix: DEFAULT_FIBER_DATABASE_PREFIX,
   logLevel: "info"
 });
-const startWasmFiber = async (): Promise<void> => {
+
+export const startFiber = async (): Promise<void> => {
   const startTime = performance.now();
   try {
     assertFiberRuntimeReady();
-    await fiber.start();
+    await fiberClient.start();
     const duration = performance.now() - startTime;
     console.log(`[fiber-wasm] WASM fiber auto-started successfully (took ${duration.toFixed(2)}ms)`);
   } catch (error) {
@@ -112,12 +111,12 @@ const startWasmFiber = async (): Promise<void> => {
   }
 };
 
-export const fiberReady = startWasmFiber();
+export const fiberReady = startFiber();
 
 if (typeof window !== "undefined") {
   window.fiberReady = fiberReady;
   void fiberReady.then(() => {
-    const fiberInstance = fiber.getFiberInstance();
+    const fiberInstance = fiberClient.getFiberInstance();
     if (!fiberInstance) {
       throw new Error("[fiber-wasm] Fiber instance is unavailable after startup");
     }

@@ -1,5 +1,10 @@
 export type AppPageMode = "default" | "dip" | "coop" | "joyid";
 
+export type RuntimeCapabilities = {
+  pageMode: AppPageMode;
+  joyIdOnly: boolean;
+};
+
 const getPathname = (pathname?: string): string => {
   if (pathname) {
     return pathname;
@@ -27,4 +32,13 @@ export const getAppPageMode = (pathname?: string): AppPageMode => {
   return "default";
 };
 
-export const isJoyIdPageMode = (pathname?: string): boolean => getAppPageMode(pathname) === "joyid";
+export const getRuntimeCapabilities = (pathname?: string): RuntimeCapabilities => {
+  const pageMode = getAppPageMode(pathname);
+  return {
+    pageMode,
+    joyIdOnly: pageMode === "joyid"
+  };
+};
+
+export const isJoyIdPageMode = (pathname?: string): boolean =>
+  getRuntimeCapabilities(pathname).joyIdOnly;

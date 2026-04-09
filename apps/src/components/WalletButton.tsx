@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ccc } from "@ckb-ccc/connector-react";
 import { ccc as cccCore } from "@ckb-ccc/ccc";
-import { truncateAddress } from "../utils/stringUtils";
+import { truncateAddress } from "../wallet/manager";
 
 type WalletButtonProps = {
   onClick?: () => void;

@@ -1,6 +1,6 @@
 import { ccc } from "@ckb-ccc/connector-react";
 import type { CSSProperties, ReactNode } from "react";
-import { isJoyIdPageMode } from "../shared/page-mode";
+import { isJoyIdPageMode } from "../runtime/mode";
 
 type CCCProviderProps = {
   children: ReactNode;
