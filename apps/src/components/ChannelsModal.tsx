@@ -1,4 +1,4 @@
-import type { CkbSignerInfo } from "../shared";
+import type { CkbSignerInfo } from "../shared/ccc-wallet";
 import { Modal } from "./ui";
 
 type ChannelSummary = {

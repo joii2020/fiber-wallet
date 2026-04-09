@@ -61,7 +61,7 @@ export type CkbSignerInfo = {
   signer: ccc.Signer;
 };
 
-export type FundingSignerSupport = {
+type FundingSignerSupport = {
   supported: boolean;
   reason?: string;
 };

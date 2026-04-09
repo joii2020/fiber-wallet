@@ -15,7 +15,7 @@ import type {
 import { getFiberConfig } from "./fiber-config";
 import { stringify } from "@ckb-ccc/connector-react";
 
-export type RelayInfo = {
+type RelayInfo = {
   address: string;
   peerId: string;
 };
@@ -50,7 +50,7 @@ export type OpenChannelWithExternalFundingCompatParams = {
   max_tlc_number_in_flight?: `0x${string}`;
 };
 
-export type OpenChannelWithExternalFundingCompatResult = {
+type OpenChannelWithExternalFundingCompatResult = {
   channel_id: `0x${string}`;
   unsigned_funding_tx: CkbJsonRpcTransaction;
 };
@@ -135,7 +135,7 @@ const getOrCreateFiberSecret = (storageKey: string): Uint8Array => {
   return generated;
 };
 
-export const ckbToShannonsHex = (amountCkb: string): `0x${string}` => {
+const ckbToShannonsHex = (amountCkb: string): `0x${string}` => {
   const trimmed = amountCkb.trim();
   if (!trimmed) {
     throw new Error("Funding amount is required");
@@ -192,7 +192,7 @@ export const toFiberCellDep = (cellDep: {
   }
 });
 
-export type FiberWasmManagerOptions = {
+type FiberWasmManagerOptions = {
   configPath?: string;
   secretStorageKey?: string;
   databasePrefix?: string;

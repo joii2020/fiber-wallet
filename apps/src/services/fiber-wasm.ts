@@ -1,5 +1,5 @@
 import type { Fiber } from "@nervosnetwork/fiber-js";
-import { FiberWasmManager } from "../shared";
+import { FiberWasmManager } from "../shared/fiber-wasm";
 import { Buffer } from "buffer/";
 import {
   DEFAULT_FIBER_CONFIG_PATH,

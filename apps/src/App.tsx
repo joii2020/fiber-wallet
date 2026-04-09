@@ -13,10 +13,12 @@ import type { Channel as FiberChannel, CkbJsonRpcTransaction } from "@nervosnetw
 import {
   CccWalletManager,
   withFundingTxWitnesses,
+  type CkbSignerInfo
+} from "./shared/ccc-wallet";
+import {
   toFiberScript,
-  type CkbSignerInfo,
   type OpenChannelWithExternalFundingCompatParams
-} from "./shared";
+} from "./shared/fiber-wasm";
 import { WalletButton } from "./components/WalletButton";
 import { ActionCard } from "./components/ui";
 import { PayModal } from "./components/PayModal";
@@ -110,7 +112,6 @@ const OPEN_CHANNEL_CAPACITY_RESERVE_SHANNONS = 120n * SHANNONS_PER_CKB;
 const OPEN_CHANNEL_FUNDING_FEE_RATE = 3000n;
 const CHANNEL_CREATION_POLL_INTERVAL_MS = 500;
 const CHANNEL_CREATION_RECONNECT_INTERVAL_MS = 3000;
-const PAYMENT_STATUS_POLL_INTERVAL_MS = 800;
 const PAYMENT_STATUS_POLL_ATTEMPTS = 10;
 const RECEIVE_INVOICE_STATUS_POLL_INTERVAL_MS = 500;
 const DEFAULT_RECEIVE_AMOUNT_SHANNONS = 1n * SHANNONS_PER_CKB;
@@ -279,6 +280,8 @@ const normalizeJoyIdSignResponse = (
 
 const getChannelStatusTone = (stateName?: string): ChannelStatus => {
   switch (stateName?.toLowerCase()) {
+    case "ready":
+    case "channelready":
     case "established":
     case "running":
       return "good";

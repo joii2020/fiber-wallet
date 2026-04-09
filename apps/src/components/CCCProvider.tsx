@@ -35,11 +35,7 @@ export function CCCProvider({ children }: CCCProviderProps) {
         {
           name: "CKB Testnet",
           client: new ccc.ClientPublicTestnet(),
-        },
-        // {
-        //   name: "CKB Mainnet",
-        //   client: new ccc.ClientPublicMainnet(),
-        // },
+        }
       ]}
     >
       {children}
