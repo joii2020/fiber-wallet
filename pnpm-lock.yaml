@@ -24,8 +24,8 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1(typescript@5.9.3)
       '@nervosnetwork/fiber-js':
-        specifier: git+https://github.com/joii2020/fiber-wasm-dist.git
-        version: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/a1b3cb0d5a54ed1ff4b4e440806f87d1cfe6b938
+        specifier: 0.8.1
+        version: 0.8.1
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -385,9 +385,8 @@ packages:
   '@nervosnetwork/ckb-types@0.109.5':
     resolution: {integrity: sha512-5jQNjFw76YCd+Ppl+0RvBWzxwvWaKfWC5wjVFFdNAieX7xksCHfZFIeow8je7AF8uVypwe56WlLBlblxw9NBBQ==}
 
-  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/a1b3cb0d5a54ed1ff4b4e440806f87d1cfe6b938':
-    resolution: {tarball: https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/a1b3cb0d5a54ed1ff4b4e440806f87d1cfe6b938}
-    version: 0.7.0-dist.1
+  '@nervosnetwork/fiber-js@0.8.1':
+    resolution: {integrity: sha512-T37qCsvrcVGeX1fjv6FrgwhfwiWPqvVmJfil5tirdYevvoZCcfigqrknMdl1lDar4l1HypDswD4szbD0b3Nz/w==}
 
   '@noble/ciphers@0.5.3':
     resolution: {integrity: sha512-B0+6IIHiqEs3BPMT0hcRmHvEj2QHOLu+uwt+tqDDeVd0oyVzh7BPrDcPjRnV1PV/5LaknXJJQvOuRGR0zQJz+w==}
@@ -594,6 +593,9 @@ packages:
 
   aes-js@4.0.0-beta.5:
     resolution: {integrity: sha512-G965FqalsNyrPqgEGON7nIx1e/OVENSgiEIzyC63haUMuvNnwIgIjMs52hlTCKhkBny7A2ORNlfY9Zu+jmGk1Q==}
+
+  async-mutex@0.5.0:
+    resolution: {integrity: sha512-1A94B18jkJ3DYq284ohPxoXbfTA5HsQ7/Mf4DEhcyLx3Bz27Rh59iScbB6EPiP+B+joue6YCxcMXSbFC1tZKwA==}
 
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
@@ -875,10 +877,17 @@ packages:
     resolution: {integrity: sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ==}
     engines: {node: '>=0.10.0'}
 
+  readable-stream@3.6.2:
+    resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
+    engines: {node: '>= 6'}
+
   rollup@4.59.0:
     resolution: {integrity: sha512-2oMpl67a3zCH9H79LeMcbDhXW/UmWG/y2zuqnF2jQq5uq9TbM9TVyXvA4+t+ne2IIkBdrLpAaRQAvo7YI/Yyeg==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  safe-buffer@5.2.1:
+    resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
@@ -890,6 +899,12 @@ packages:
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
+
+  stream-browserify@3.0.0:
+    resolution: {integrity: sha512-H73RAHsVBapbim0tU2JwwOiXUj+fikfiaoYAKHF3VJfA0pe2BCzkhAHBlLG6REzE+2WNZcxOXjK7lkso+9euLA==}
+
+  string_decoder@1.3.0:
+    resolution: {integrity: sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==}
 
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
@@ -924,6 +939,9 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  util-deprecate@1.0.2:
+    resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
   valibot@1.2.0:
     resolution: {integrity: sha512-mm1rxUsmOxzrwnX5arGS+U4T25RdvpPjPN4yR0u9pUBov9+zGVtO84tif1eY4r6zWxVxu3KzIyknJy3rxfRZZg==}
@@ -1454,7 +1472,10 @@ snapshots:
 
   '@nervosnetwork/ckb-types@0.109.5': {}
 
-  '@nervosnetwork/fiber-js@https://codeload.github.com/joii2020/fiber-wasm-dist/tar.gz/a1b3cb0d5a54ed1ff4b4e440806f87d1cfe6b938': {}
+  '@nervosnetwork/fiber-js@0.8.1':
+    dependencies:
+      async-mutex: 0.5.0
+      stream-browserify: 3.0.0
 
   '@noble/ciphers@0.5.3': {}
 
@@ -1601,6 +1622,10 @@ snapshots:
       typescript: 5.9.3
 
   aes-js@4.0.0-beta.5: {}
+
+  async-mutex@0.5.0:
+    dependencies:
+      tslib: 2.7.0
 
   asynckit@0.4.0: {}
 
@@ -1891,6 +1916,12 @@ snapshots:
 
   react@19.2.4: {}
 
+  readable-stream@3.6.2:
+    dependencies:
+      inherits: 2.0.4
+      string_decoder: 1.3.0
+      util-deprecate: 1.0.2
+
   rollup@4.59.0:
     dependencies:
       '@types/estree': 1.0.8
@@ -1922,11 +1953,22 @@ snapshots:
       '@rollup/rollup-win32-x64-msvc': 4.59.0
       fsevents: 2.3.3
 
+  safe-buffer@5.2.1: {}
+
   scheduler@0.27.0: {}
 
   semver@6.3.1: {}
 
   source-map-js@1.2.1: {}
+
+  stream-browserify@3.0.0:
+    dependencies:
+      inherits: 2.0.4
+      readable-stream: 3.6.2
+
+  string_decoder@1.3.0:
+    dependencies:
+      safe-buffer: 5.2.1
 
   tinyglobby@0.2.15:
     dependencies:
@@ -1952,6 +1994,8 @@ snapshots:
       browserslist: 4.28.1
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  util-deprecate@1.0.2: {}
 
   valibot@1.2.0(typescript@5.9.3):
     optionalDependencies:
