@@ -1,4 +1,4 @@
-export type AppPageMode = "default" | "dip" | "coop" | "joyid";
+export type AppPageMode = "default" | "dip" | "coop" /* | "joyid" */;
 
 export type RuntimeCapabilities = {
   pageMode: AppPageMode;
@@ -26,9 +26,9 @@ export const getAppPageMode = (pathname?: string): AppPageMode => {
   if (currentPathname.endsWith("/coop.html")) {
     return "coop";
   }
-  if (currentPathname.endsWith("/joyid.html")) {
-    return "joyid";
-  }
+  // if (currentPathname.endsWith("/joyid.html")) {
+  //   return "joyid";
+  // }
   return "default";
 };
 
@@ -36,7 +36,7 @@ export const getRuntimeCapabilities = (pathname?: string): RuntimeCapabilities =
   const pageMode = getAppPageMode(pathname);
   return {
     pageMode,
-    joyIdOnly: pageMode === "joyid"
+    joyIdOnly: false // pageMode === "joyid" — temporarily disabled
   };
 };
 
